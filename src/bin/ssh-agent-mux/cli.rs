@@ -23,6 +23,10 @@ fn default_config_path() -> PathBuf {
         .join(concat!(env!("CARGO_PKG_NAME"), ".toml"))
 }
 
+fn expand_env_vars(text: &str) -> EyreResult<String> {
+    Ok(shellexpand::env(text)?.into_owned())
+}
+
 #[derive(Parser)]
 #[command(author, version, about)]
 struct Args {
@@ -75,7 +79,8 @@ impl Config {
             log::info!("Read configuration from {}", args.config_path.display());
             let mut config_text = String::new();
             f.read_to_string(&mut config_text)?;
-            let file_config = toml::from_str::<<Config as ClapSerde>::Opt>(&config_text)?;
+            let expanded_config_text = expand_env_vars(&config_text)?;
+            let file_config = toml::from_str::<<Config as ClapSerde>::Opt>(&expanded_config_text)?;
             Config::from(file_config).merge(&mut args.config)
         } else {
             Config::from(&mut args.config)
@@ -117,5 +122,65 @@ impl From<LogLevel> for LevelFilter {
             LogLevel::Debug => LevelFilter::Debug,
             LogLevel::Trace => LevelFilter::Trace,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::env;
+
+    #[test]
+    fn test_env_var_expansion() -> EyreResult<()> {
+        // Test basic environment variable expansion
+        env::set_var("TEST_VAR", "test_value");
+        let result = expand_env_vars("${TEST_VAR}")?;
+        assert_eq!(result, "test_value");
+
+        // Test expansion in middle of string
+        let result = expand_env_vars("/path/${TEST_VAR}/file")?;
+        assert_eq!(result, "/path/test_value/file");
+
+        // Test multiple variables
+        env::set_var("TEST_VAR2", "another");
+        let result = expand_env_vars("${TEST_VAR}_${TEST_VAR2}")?;
+        assert_eq!(result, "test_value_another");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_config_with_env_vars() -> EyreResult<()> {
+        use tempfile::NamedTempFile;
+
+        // Set test environment variables
+        env::set_var("TEST_HOME", "/test/home");
+        env::set_var("TEST_USER", "testuser");
+        env::set_var("TEST_SOCK", "/tmp/test.sock");
+
+        // Create a temporary config file with environment variables
+        let config_content = r#"
+listen_path = "${TEST_HOME}/.ssh/agent-mux.sock"
+log_level = "info"
+log_file = "${TEST_HOME}/logs/ssh-agent-mux.log"
+agent_sock_paths = [
+    "${TEST_SOCK}",
+    "/tmp/ssh-agent-${TEST_USER}.sock"
+]
+"#;
+
+        let mut temp_file = NamedTempFile::new()?;
+        std::io::Write::write_all(&mut temp_file, config_content.as_bytes())?;
+
+        // Test that our expansion function works on the config content
+        let expanded = expand_env_vars(config_content)?;
+
+        // Verify environment variables were expanded
+        assert!(expanded.contains("/test/home/.ssh/agent-mux.sock"));
+        assert!(expanded.contains("/test/home/logs/ssh-agent-mux.log"));
+        assert!(expanded.contains("/tmp/test.sock"));
+        assert!(expanded.contains("/tmp/ssh-agent-testuser.sock"));
+
+        Ok(())
     }
 }
