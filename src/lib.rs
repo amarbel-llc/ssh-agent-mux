@@ -247,6 +247,12 @@ struct SelfDeletingUnixListener {
 impl SelfDeletingUnixListener {
     fn bind(path: impl AsRef<Path>) -> std::io::Result<Self> {
         let path = path.as_ref().to_path_buf();
+
+        // Create parent directories if they don't exist
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
         UnixListener::bind(&path).map(|listener| Self { path, listener })
     }
 }

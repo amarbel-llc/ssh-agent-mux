@@ -42,7 +42,7 @@ struct Args {
 #[derive(ClapSerde, Clone, Serialize)]
 pub struct Config {
     /// Listen path
-    #[default(PathBuf::from(concat!("~/.ssh/", env!("CARGO_PKG_NAME"), ".sock")))]
+    #[default(PathBuf::from(concat!("~/.local/state/", env!("CARGO_PKG_NAME"), "/agent.sock")))]
     #[arg(short, long = "listen")]
     pub listen_path: PathBuf,
 

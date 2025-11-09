@@ -148,6 +148,12 @@ fn write_new_config_file(config: &Config) -> Result<()> {
     }
 
     println!("{}", success_msg);
+
+    // Create parent directories if they don't exist
+    if let Some(parent) = config.config_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
     let new_config_toml = toml::to_string_pretty(&new_config)?;
     fs::write(&config.config_path, new_config_toml.as_bytes())?;
     Ok(())
