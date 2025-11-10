@@ -44,7 +44,9 @@ impl SshAgentInstance {
         let sock_path = tempfile::Builder::new()
             .prefix("agent_")
             .suffix(".sock")
-            .tempfile_in(env!("CARGO_TARGET_TMPDIR"))?
+            // we don't use CARGO_TARGET_TMPDIR because the filepath in nix can get quite long, and
+            // there is a limit on macOS of 104 characters.
+            .tempfile_in(std::env::temp_dir())?
             .into_temp_path();
         fs::remove_file(&sock_path)?;
 

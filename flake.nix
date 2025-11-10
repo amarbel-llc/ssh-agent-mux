@@ -14,12 +14,13 @@
   };
 
   outputs =
-    {
-      self,
-      nixpkgs,
-      utils,
-      rust-overlay,
-      devenv-rust, nixpkgs-stable,
+    { self
+    , nixpkgs
+    , utils
+    , rust-overlay
+    , devenv-rust
+    , nixpkgs-stable
+    ,
     }:
     utils.lib.eachDefaultSystem (
       system:
@@ -46,8 +47,6 @@
           nativeBuildInputs = [
             rustToolchain
           ];
-
-          __darwinAllowLocalNetworking = true;
 
           nativeCheckInputs = [ pkgs.openssh ];
 
