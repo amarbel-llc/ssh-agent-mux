@@ -42,7 +42,7 @@ async fn main() -> EyreResult<()> {
 
     loop {
         select! {
-            res = MuxAgent::run(&config.listen_path, &config.agent_sock_paths) => { res?; break },
+            res = MuxAgent::run(&config.listen_path, &config.agent_sock_paths, config.added_keys.clone()) => { res?; break },
             // Cleanly exit on interrupt and SIGTERM, allowing
             // MuxAgent to clean up
             _ = signal::ctrl_c() => { log::info!("Exiting on SIGINT"); break },

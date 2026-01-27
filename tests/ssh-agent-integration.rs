@@ -85,3 +85,31 @@ fn mux_with_three_agents() -> TestResult {
 
     Ok(())
 }
+
+#[test]
+fn mux_add_identity_forwarding() -> TestResult {
+    // Create an openssh agent to receive forwarded add_identity requests
+    let target_agent = SshAgentInstance::new_openssh()?;
+
+    // Verify the target agent is empty
+    assert!(target_agent.list()?.is_empty());
+
+    // Create a mux agent with added_keys pointing to the target agent
+    let mux_agent = SshAgentInstance::new_mux(
+        &format!(
+            r##"added_keys = "{}""##,
+            target_agent.sock_path.display()
+        ),
+        None::<OsString>,
+    )?;
+
+    // Add a key via the mux agent
+    mux_agent.add(keys::TEST_KEY_RSA)?;
+
+    // Verify the key was forwarded to the target agent
+    let keys_in_target = target_agent.list()?;
+    assert_eq!(keys_in_target.len(), 1);
+    assert_eq!(keys_in_target[0], keys::TEST_KEY_RSA_PUB);
+
+    Ok(())
+}

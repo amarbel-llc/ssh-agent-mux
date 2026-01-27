@@ -59,6 +59,10 @@ pub struct Config {
     #[arg()]
     pub agent_sock_paths: Vec<PathBuf>,
 
+    /// Optional agent socket to forward add_identity requests to
+    #[arg(long)]
+    pub added_keys: Option<PathBuf>,
+
     // Following are part of command line args, but
     // not in configuration file
     /// Config file path (not an arg; copied from struct Args)
@@ -97,6 +101,10 @@ impl Config {
             .into_iter()
             .map(|p| p.expand_tilde_owned())
             .collect::<Result<_, _>>()?;
+        config.added_keys = config
+            .added_keys
+            .map(|p| p.expand_tilde_owned())
+            .transpose()?;
 
         Ok(config)
     }

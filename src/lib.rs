@@ -20,8 +20,8 @@ use tokio::{
 type KnownPubKeysMap = HashMap<PubKeyData, PathBuf>;
 type KnownPubKeys = Arc<Mutex<KnownPubKeysMap>>;
 
-/// Only the `request_identities`, `sign`, and `extension` commands are implemented. For
-/// `extension`, only the `session-bind@openssh.com` and `query` extensions are supported.
+/// Only the `request_identities`, `sign`, `add_identity`, and `extension` commands are implemented.
+/// For `extension`, only the `session-bind@openssh.com` and `query` extensions are supported.
 #[ssh_agent_lib::async_trait]
 impl Session for MuxAgent {
     async fn request_identities(&mut self) -> Result<Vec<Identity>, AgentError> {
@@ -92,18 +92,43 @@ impl Session for MuxAgent {
             _ => Err(AgentError::Failure),
         }
     }
+
+    async fn add_identity(
+        &mut self,
+        identity: ssh_agent_lib::proto::AddIdentity,
+    ) -> Result<(), AgentError> {
+        log::trace!("incoming: add_identity");
+
+        if let Some(added_keys_sock) = &self.added_keys_sock {
+            log::info!(
+                "Forwarding add_identity request to upstream agent <{}>",
+                added_keys_sock.display()
+            );
+
+            let mut client = self.connect_upstream_agent(added_keys_sock)?;
+            client.add_identity(identity).await
+        } else {
+            log::error!("add_identity requested but no added_keys socket configured");
+            Err(AgentError::Failure)
+        }
+    }
 }
 
 #[derive(Clone)]
 pub struct MuxAgent {
     socket_paths: Vec<PathBuf>,
+    added_keys_sock: Option<PathBuf>,
     known_keys: KnownPubKeys,
 }
 
 impl MuxAgent {
     /// Run a MuxAgent, listening for SSH agent protocol requests on `listen_sock`, forwarding
     /// requests to the specified paths in `agent_socks`
-    pub async fn run<I, P>(listen_sock: impl AsRef<Path>, agent_socks: I) -> Result<(), AgentError>
+    pub async fn run<I, P>(
+        listen_sock: impl AsRef<Path>,
+        agent_socks: I,
+        added_keys_sock: Option<PathBuf>,
+    ) -> Result<(), AgentError>
     where
         I: IntoIterator<Item = P>,
         P: AsRef<Path>,
@@ -122,6 +147,9 @@ impl MuxAgent {
             listen_sock.display()
         );
         log::debug!("Upstream agent sockets: {:?}", &socket_paths);
+        if let Some(ref added_keys) = added_keys_sock {
+            log::info!("add_identity requests will be forwarded to <{}>", added_keys.display());
+        }
 
         let listen_sock = match SelfDeletingUnixListener::bind(listen_sock) {
             Ok(s) => s,
@@ -135,6 +163,7 @@ impl MuxAgent {
         };
         let this = Self {
             socket_paths,
+            added_keys_sock,
             known_keys: Default::default(),
         };
         agent::listen(listen_sock, this).await

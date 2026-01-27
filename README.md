@@ -106,6 +106,12 @@ Controls the verbosity of `ssh-agent-mux`'s output. Valid values are: `error`, `
 
 *Default*: `warn`
 
+#### `added_keys` *[String](https://toml.io/en/v1.0.0#string)* (Optional)
+
+Socket path of an upstream SSH agent to forward `add_identity` requests to. When SSH keys are added via `ssh-add` to the `ssh-agent-mux` socket, they will be forwarded to this agent. This allows you to add keys to a specific agent through the mux.
+
+*Default*: None (add_identity requests will fail if not configured)
+
 ## Related projects
 
 * [`ssh-manager`](https://github.com/omegion/ssh-manager): key manager for 1Password, Bitwarden, and AWS S3
