@@ -30,6 +30,13 @@ async fn main() -> EyreResult<()> {
 
     let mut config = cli::Config::parse()?;
 
+    // Create parent directory for log file if it doesn't exist
+    if let Some(ref log_file) = config.log_file {
+        if let Some(parent) = log_file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+    }
+
     // LoggerHandle must be held until program termination so file logging takes place
     let _logger = logging::setup_logger(config.log_level.into(), config.log_file.as_deref())?;
 
