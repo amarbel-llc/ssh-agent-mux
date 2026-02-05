@@ -2,8 +2,8 @@
   description = "Combine keys from multiple SSH agents into a single agent socket";
 
   inputs = {
-    nixpkgs-stable.url = "github:NixOS/nixpkgs/9ef261221d1e72399f2036786498d78c38185c46";
-    nixpkgs.url = "github:NixOS/nixpkgs/c4cfc9ced33f81099f419fa59893df11dc3f9de9";
+    nixpkgs-stable.url = "github:NixOS/nixpkgs/fa83fd837f3098e3e678e6cf017b2b36102c7211";
+    nixpkgs.url = "github:NixOS/nixpkgs/54b154f971b71d260378b284789df6b272b49634";
     utils.url = "https://flakehub.com/f/numtide/flake-utils/0.1.102";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
@@ -49,6 +49,11 @@
           ];
 
           nativeCheckInputs = [ pkgs.openssh ];
+
+          # Skip integration tests in sandbox due to macOS SDK restrictions.
+          # Tests work fine in nix develop, but fail in the stricter nix build sandbox
+          # on macOS due to environment and filesystem restrictions.
+          doCheck = !pkgs.stdenv.hostPlatform.isDarwin;
 
           meta = with pkgs.lib; {
             description = "Combine keys from multiple SSH agents into a single agent socket";

@@ -11,16 +11,28 @@ use log::LevelFilter;
 
 use crate::service;
 
-fn default_config_path() -> PathBuf {
+fn default_config_path() -> EyreResult<PathBuf> {
     let config_dir = env::var_os("XDG_CONFIG_HOME")
         .or_else(|| Some("~/.config".into()))
         .map(PathBuf::from)
         .and_then(|p| p.expand_tilde_owned().ok())
-        .expect("HOME not defined in environment");
+        .ok_or_else(|| color_eyre::eyre::eyre!("HOME not defined in environment"))?;
 
-    config_dir
+    Ok(config_dir
         .join(env!("CARGO_PKG_NAME"))
-        .join(concat!(env!("CARGO_PKG_NAME"), ".toml"))
+        .join(concat!(env!("CARGO_PKG_NAME"), ".toml")))
+}
+
+fn default_log_path() -> EyreResult<PathBuf> {
+    let state_dir = env::var_os("XDG_STATE_HOME")
+        .or_else(|| Some("~/.local/state".into()))
+        .map(PathBuf::from)
+        .and_then(|p| p.expand_tilde_owned().ok())
+        .ok_or_else(|| color_eyre::eyre::eyre!("HOME not defined in environment"))?;
+
+    Ok(state_dir
+        .join(env!("CARGO_PKG_NAME"))
+        .join(concat!(env!("CARGO_PKG_NAME"), ".log")))
 }
 
 fn expand_env_vars(text: &str) -> EyreResult<String> {
@@ -31,8 +43,8 @@ fn expand_env_vars(text: &str) -> EyreResult<String> {
 #[command(author, version, about)]
 struct Args {
     /// Config file
-    #[arg(short, long = "config", default_value_os_t = default_config_path())]
-    config_path: PathBuf,
+    #[arg(short, long = "config")]
+    config_path: Option<PathBuf>,
 
     /// Config from file or args
     #[command(flatten)]
@@ -63,11 +75,6 @@ pub struct Config {
     #[arg(long)]
     pub added_keys: Option<PathBuf>,
 
-    /// Timeout in seconds for upstream agent operations (default: 5)
-    #[default(5)]
-    #[arg(long)]
-    pub agent_timeout: u64,
-
     // Following are part of command line args, but
     // not in configuration file
     /// Config file path (not an arg; copied from struct Args)
@@ -84,22 +91,29 @@ impl Config {
     pub fn parse() -> EyreResult<Self> {
         let mut args = Args::parse();
 
-        let mut config = if let Ok(mut f) = File::open(&args.config_path) {
-            log::info!("Read configuration from {}", args.config_path.display());
-            let mut config_text = String::new();
-            f.read_to_string(&mut config_text)?;
-            let expanded_config_text = expand_env_vars(&config_text)?;
-            let file_config = toml::from_str::<<Config as ClapSerde>::Opt>(&expanded_config_text)?;
-            Config::from(file_config).merge(&mut args.config)
+        let config_path = args.config_path.or_else(|| default_config_path().ok());
+
+        let mut config = if let Some(ref path) = config_path {
+            if let Ok(mut f) = File::open(path) {
+                log::info!("Read configuration from {}", path.display());
+                let mut config_text = String::new();
+                f.read_to_string(&mut config_text)?;
+                let expanded_config_text = expand_env_vars(&config_text)?;
+                let file_config = toml::from_str::<<Config as ClapSerde>::Opt>(&expanded_config_text)?;
+                Config::from(file_config).merge(&mut args.config)
+            } else {
+                Config::from(&mut args.config)
+            }
         } else {
             Config::from(&mut args.config)
         };
 
-        config.config_path = args.config_path;
+        config.config_path = config_path.unwrap_or_default();
         config.listen_path = config.listen_path.expand_tilde_owned()?;
-        config.log_file = config.log_file
-            .map(|p| p.expand_tilde_owned())
-            .transpose()?;
+        config.log_file = match config.log_file {
+            Some(p) => Some(p.expand_tilde_owned()?),
+            None => default_log_path().ok(),
+        };
         config.agent_sock_paths = config
             .agent_sock_paths
             .into_iter()

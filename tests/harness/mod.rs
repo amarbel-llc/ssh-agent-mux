@@ -97,7 +97,7 @@ impl SshAgentInstance {
         let mut config_file = tempfile::Builder::new()
             .prefix("ssh-mux-agent_")
             .suffix(".toml")
-            .tempfile_in(env!("CARGO_TARGET_TMPDIR"))?;
+            .tempfile_in(std::env::temp_dir())?;
         config_file.write_all(config.as_bytes())?;
         let config_arg: OsString = format!("--config={}", config_file.path().display()).into();
         let mut config_args = vec![A::from(config_arg)];
