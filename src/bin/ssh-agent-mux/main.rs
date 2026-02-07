@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use color_eyre::eyre::Result as EyreResult;
 use ssh_agent_mux::MuxAgent;
 use tokio::select;
@@ -49,7 +51,7 @@ async fn main() -> EyreResult<()> {
 
     loop {
         select! {
-            res = MuxAgent::run(&config.listen_path, &config.agent_sock_paths, config.added_keys.clone()) => { res?; break },
+            res = MuxAgent::run(&config.listen_path, &config.agent_sock_paths, config.added_keys.clone(), Duration::from_secs(config.agent_timeout)) => { res?; break },
             // Cleanly exit on interrupt and SIGTERM, allowing
             // MuxAgent to clean up
             _ = signal::ctrl_c() => { log::info!("Exiting on SIGINT"); break },

@@ -75,6 +75,11 @@ pub struct Config {
     #[arg(long)]
     pub added_keys: Option<PathBuf>,
 
+    /// Timeout in seconds for upstream agent operations (default: 5)
+    #[default(5)]
+    #[arg(long)]
+    pub agent_timeout: u64,
+
     // Following are part of command line args, but
     // not in configuration file
     /// Config file path (not an arg; copied from struct Args)

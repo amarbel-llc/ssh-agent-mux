@@ -37,7 +37,7 @@ default-features = false
 
 [dependencies.tokio]
 version = "1.45.0"
-features = ["rt", "macros", "signal", "sync"]
+features = ["rt", "macros", "signal", "sync", "net", "time"]
 
 [dev-dependencies]
 duct = "1.0.0"

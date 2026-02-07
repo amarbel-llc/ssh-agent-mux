@@ -1,8 +1,8 @@
 use std::{
     collections::HashMap,
-    os::unix::net::UnixStream,
     path::{Path, PathBuf},
     sync::Arc,
+    time::Duration,
 };
 
 use ssh_agent_lib::{
@@ -15,6 +15,7 @@ use ssh_agent_lib::{
 use tokio::{
     net::UnixListener,
     sync::{Mutex, OwnedMutexGuard},
+    time::timeout,
 };
 
 type KnownPubKeysMap = HashMap<PubKeyData, PathBuf>;
@@ -41,8 +42,18 @@ impl Session for MuxAgent {
                 agent_sock_path.display()
             );
 
-            let mut client = self.connect_upstream_agent(agent_sock_path)?;
-            client.sign(request).await
+            let mut client = self.connect_upstream_agent(&agent_sock_path).await?;
+            timeout(self.agent_timeout, client.sign(request))
+                .await
+                .map_err(|_| {
+                    AgentError::Other(
+                        format!(
+                            "Sign request timed out on upstream agent: {}",
+                            agent_sock_path.display()
+                        )
+                        .into(),
+                    )
+                })?
         } else {
             log::error!("No upstream agent found for public key {}", &fingerprint);
             log::trace!("Known keys:\n{:#?}", self.known_keys);
@@ -64,22 +75,34 @@ impl Session for MuxAgent {
                     // Try extension on upstream agents; discard any upstream failures from agents
                     // that don't support the extension (but the default is Failure if there are no
                     // successful upstream responses)
-                    if let Ok(mut client) = self.connect_upstream_agent(sock_path) {
-                        match client.extension(request.clone()).await {
-                            // Any agent succeeding is an overall success
-                            Ok(v) => {
-                                session_bind_suceeded = true;
-                                if v.is_some() {
-                                    log::warn!("session-bind@openssh.com request succeeded on socket <{}>, but an invalid response was received", sock_path.display());
-                                }
+                    let mut client = match self.connect_upstream_agent(sock_path).await {
+                        Ok(c) => c,
+                        Err(_) => continue,
+                    };
+                    let result = match timeout(self.agent_timeout, client.extension(request.clone())).await {
+                        Ok(r) => r,
+                        Err(_) => {
+                            log::warn!(
+                                "Extension request timed out on upstream agent: {}",
+                                sock_path.display()
+                            );
+                            continue;
+                        }
+                    };
+                    match result {
+                        // Any agent succeeding is an overall success
+                        Ok(v) => {
+                            session_bind_suceeded = true;
+                            if v.is_some() {
+                                log::warn!("session-bind@openssh.com request succeeded on socket <{}>, but an invalid response was received", sock_path.display());
                             }
-                            // Don't propagate upstream lack of extension support
-                            Err(AgentError::Failure) => continue,
-                            // Report but ignore any unexpected errors
-                            Err(e) => {
-                                log::error!("Unexpected error on socket <{}> when requesting session-bind@openssh.com extension: {}", sock_path.display(), e);
-                                continue;
-                            }
+                        }
+                        // Don't propagate upstream lack of extension support
+                        Err(AgentError::Failure) => continue,
+                        // Report but ignore any unexpected errors
+                        Err(e) => {
+                            log::error!("Unexpected error on socket <{}> when requesting session-bind@openssh.com extension: {}", sock_path.display(), e);
+                            continue;
                         }
                     }
                 }
@@ -105,8 +128,18 @@ impl Session for MuxAgent {
                 added_keys_sock.display()
             );
 
-            let mut client = self.connect_upstream_agent(added_keys_sock)?;
-            client.add_identity(identity).await
+            let mut client = self.connect_upstream_agent(added_keys_sock).await?;
+            timeout(self.agent_timeout, client.add_identity(identity))
+                .await
+                .map_err(|_| {
+                    AgentError::Other(
+                        format!(
+                            "Add identity request timed out on upstream agent: {}",
+                            added_keys_sock.display()
+                        )
+                        .into(),
+                    )
+                })?
         } else {
             log::error!("add_identity requested but no added_keys socket configured");
             Err(AgentError::Failure)
@@ -119,6 +152,7 @@ pub struct MuxAgent {
     socket_paths: Vec<PathBuf>,
     added_keys_sock: Option<PathBuf>,
     known_keys: KnownPubKeys,
+    agent_timeout: Duration,
 }
 
 impl MuxAgent {
@@ -128,6 +162,7 @@ impl MuxAgent {
         listen_sock: impl AsRef<Path>,
         agent_socks: I,
         added_keys_sock: Option<PathBuf>,
+        agent_timeout: Duration,
     ) -> Result<(), AgentError>
     where
         I: IntoIterator<Item = P>,
@@ -165,17 +200,29 @@ impl MuxAgent {
             socket_paths,
             added_keys_sock,
             known_keys: Default::default(),
+            agent_timeout,
         };
         agent::listen(listen_sock, this).await
     }
 
-    fn connect_upstream_agent(
+    async fn connect_upstream_agent(
         &self,
         sock_path: impl AsRef<Path>,
     ) -> Result<Box<dyn Session>, AgentError> {
         let sock_path = sock_path.as_ref();
-        let stream = UnixStream::connect(sock_path)?;
-        let client = client::connect(stream.into()).map_err(|e| {
+        let stream = timeout(self.agent_timeout, tokio::net::UnixStream::connect(sock_path))
+            .await
+            .map_err(|_| {
+                AgentError::Other(
+                    format!(
+                        "Connection to upstream agent timed out: {}",
+                        sock_path.display()
+                    )
+                    .into(),
+                )
+            })?
+            .map_err(AgentError::IO)?;
+        let client = client::connect(stream.into_std()?.into()).map_err(|e| {
             AgentError::Other(
                 format!(
                     "Failed to connect to agent at {}: {}",
@@ -218,7 +265,7 @@ impl MuxAgent {
 
         log::debug!("Refreshing identities");
         for sock_path in &self.socket_paths {
-            let mut client = match self.connect_upstream_agent(sock_path) {
+            let mut client = match self.connect_upstream_agent(sock_path).await {
                 Ok(c) => c,
                 Err(_) => {
                     log::warn!(
@@ -228,13 +275,25 @@ impl MuxAgent {
                     continue;
                 }
             };
-            let agent_identities = match client.request_identities().await {
-                Ok(ids) => ids,
-                Err(e) => {
+            let agent_identities: Vec<Identity> = match timeout(
+                self.agent_timeout,
+                client.request_identities(),
+            )
+            .await
+            {
+                Ok(Ok(ids)) => ids,
+                Ok(Err(e)) => {
                     log::warn!(
                         "Failed to request identities from upstream agent socket <{}>: {}",
                         sock_path.display(),
                         e
+                    );
+                    continue;
+                }
+                Err(_) => {
+                    log::warn!(
+                        "Request identities timed out on upstream agent: {}",
+                        sock_path.display()
                     );
                     continue;
                 }
