@@ -23,17 +23,6 @@ fn default_config_path() -> EyreResult<PathBuf> {
         .join(concat!(env!("CARGO_PKG_NAME"), ".toml")))
 }
 
-fn default_log_path() -> EyreResult<PathBuf> {
-    let state_dir = env::var_os("XDG_STATE_HOME")
-        .or_else(|| Some("~/.local/state".into()))
-        .map(PathBuf::from)
-        .and_then(|p| p.expand_tilde_owned().ok())
-        .ok_or_else(|| color_eyre::eyre::eyre!("HOME not defined in environment"))?;
-
-    Ok(state_dir
-        .join(env!("CARGO_PKG_NAME"))
-        .join(concat!(env!("CARGO_PKG_NAME"), ".log")))
-}
 
 fn expand_env_vars(text: &str) -> EyreResult<String> {
     Ok(shellexpand::env(text)?.into_owned())
@@ -115,10 +104,9 @@ impl Config {
 
         config.config_path = config_path.unwrap_or_default();
         config.listen_path = config.listen_path.expand_tilde_owned()?;
-        config.log_file = match config.log_file {
-            Some(p) => Some(p.expand_tilde_owned()?),
-            None => default_log_path().ok(),
-        };
+        config.log_file = config.log_file
+            .map(|p| p.expand_tilde_owned())
+            .transpose()?;
         config.agent_sock_paths = config
             .agent_sock_paths
             .into_iter()

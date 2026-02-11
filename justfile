@@ -1,3 +1,4 @@
+build: build-nix
 
 build-nix:
   nix build
