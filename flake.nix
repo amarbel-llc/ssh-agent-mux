@@ -2,15 +2,16 @@
   description = "Combine keys from multiple SSH agents into a single agent socket";
 
   inputs = {
+    nixpkgs-master.url = "github:NixOS/nixpkgs/b28c4999ed71543e71552ccfd0d7e68c581ba7e9";
     nixpkgs-stable.url = "github:NixOS/nixpkgs/fa83fd837f3098e3e678e6cf017b2b36102c7211";
-    nixpkgs.url = "github:NixOS/nixpkgs/54b154f971b71d260378b284789df6b272b49634";
+    nixpkgs.url = "github:NixOS/nixpkgs/23d72dabcb3b12469f57b37170fcbc1789bd7457";
     utils.url = "https://flakehub.com/f/numtide/flake-utils/0.1.102";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    devenv-rust.url = "github:friedenberg/eng?dir=pkgs/alfa/devenv-rust";
+    rust.url = "github:friedenberg/eng?dir=devenvs/rust";
   };
 
   outputs =
@@ -18,8 +19,8 @@
     , nixpkgs
     , utils
     , rust-overlay
-    , devenv-rust
-    , nixpkgs-stable
+    , rust
+    , nixpkgs-stable, nixpkgs-master
     ,
     }:
     utils.lib.eachDefaultSystem (
@@ -75,7 +76,7 @@
           ];
 
           inputsFrom = [
-            devenv-rust.devShells.${system}.default
+            rust.devShells.${system}.default
           ];
 
           RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
