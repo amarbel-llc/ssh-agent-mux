@@ -2,37 +2,24 @@
   description = "Combine keys from multiple SSH agents into a single agent socket";
 
   inputs = {
-    nixpkgs-master.url = "github:NixOS/nixpkgs/b28c4999ed71543e71552ccfd0d7e68c581ba7e9";
-    nixpkgs-stable.url = "github:NixOS/nixpkgs/fa83fd837f3098e3e678e6cf017b2b36102c7211";
-    nixpkgs.url = "github:NixOS/nixpkgs/23d72dabcb3b12469f57b37170fcbc1789bd7457";
-    utils.url = "https://flakehub.com/f/numtide/flake-utils/0.1.102";
-    rust-overlay = {
-      url = "github:oxalica/rust-overlay";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
-
-    rust.url = "github:friedenberg/eng?dir=devenvs/rust";
+    devenv-rust.url = "github:friedenberg/eng?dir=devenvs/rust";
+    nixpkgs.follows = "devenv-rust/nixpkgs";
+    utils.follows = "devenv-rust/utils";
   };
 
   outputs =
     { self
     , nixpkgs
     , utils
-    , rust-overlay
-    , rust
-    , nixpkgs-stable, nixpkgs-master
+    , devenv-rust
     ,
     }:
     utils.lib.eachDefaultSystem (
       system:
       let
-        overlays = [ (import rust-overlay) ];
-
         pkgs = import nixpkgs {
-          inherit system overlays;
+          inherit system;
         };
-
-        rustToolchain = pkgs.rust-bin.stable."1.81.0".default;
       in
       {
         packages.default = pkgs.rustPlatform.buildRustPackage {
@@ -44,10 +31,6 @@
           cargoLock = {
             lockFile = ./Cargo.lock;
           };
-
-          nativeBuildInputs = [
-            rustToolchain
-          ];
 
           nativeCheckInputs = [ pkgs.openssh ];
 
@@ -67,20 +50,7 @@
           };
         };
 
-        devShells.default = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            rustToolchain
-            rust-analyzer
-            cargo-edit
-            cargo-watch
-          ];
-
-          inputsFrom = [
-            rust.devShells.${system}.default
-          ];
-
-          RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
-        };
+        devShells.default = devenv-rust.devShells.${system}.default;
       }
     );
 }
