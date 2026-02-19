@@ -46,6 +46,11 @@ async fn main() -> EyreResult<()> {
         return service::handle_service_command(&config);
     }
 
+    // TODO: detect and remove stale socket before binding. If
+    // listen_path exists but no process is listening (connect returns
+    // ECONNREFUSED), unlink it so MuxAgent::run doesn't fail with
+    // "Address already in use".
+
     let mut sigterm = signal::unix::signal(SignalKind::terminate())?;
     let mut sighup = signal::unix::signal(SignalKind::hangup())?;
 
