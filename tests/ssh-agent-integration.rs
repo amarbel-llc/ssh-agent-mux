@@ -18,6 +18,12 @@ fn make_openssh_agent_with_keys() -> io::Result<SshAgentInstance> {
     Ok(agent)
 }
 
+fn assert_no_keys_in_agent(agent: &SshAgentInstance) -> TestResult {
+    let keys_in_agent = agent.list()?;
+    assert!(keys_in_agent.is_empty(), "Expected no keys, got: {:?}", keys_in_agent);
+    Ok(())
+}
+
 fn assert_all_keys_in_agent(agent: &SshAgentInstance) -> TestResult {
     let keys_in_agent = agent.list()?;
     for key in keys::PUBLIC {
@@ -110,6 +116,62 @@ fn mux_add_identity_forwarding() -> TestResult {
     let keys_in_target = target_agent.list()?;
     assert_eq!(keys_in_target.len(), 1);
     assert_eq!(keys_in_target[0], keys::TEST_KEY_RSA_PUB);
+
+    Ok(())
+}
+
+#[test]
+fn mux_lock_unlock() -> TestResult {
+    let openssh_agent = make_openssh_agent_with_keys()?;
+    let mux_agent = SshAgentInstance::new_mux(
+        &format!(
+            r##"agent_sock_paths = ["{}"]"##,
+            openssh_agent.sock_path.display()
+        ),
+        None::<OsString>,
+    )?;
+
+    assert_all_keys_in_agent(&mux_agent)?;
+
+    mux_agent.lock("test-passphrase")?;
+    assert_no_keys_in_agent(&mux_agent)?;
+
+    mux_agent.unlock("test-passphrase")?;
+    assert_all_keys_in_agent(&mux_agent)?;
+
+    Ok(())
+}
+
+#[test]
+fn mux_lock_unlock_multiple_agents() -> TestResult {
+    let agent_rsa = SshAgentInstance::new_openssh()?;
+    agent_rsa.add(keys::TEST_KEY_RSA)?;
+    let agent_ed25519 = SshAgentInstance::new_openssh()?;
+    agent_ed25519.add(keys::TEST_KEY_ED25519)?;
+
+    let mux_agent = SshAgentInstance::new_mux(
+        &format!(
+            r##"agent_sock_paths = ["{}", "{}"]"##,
+            agent_rsa.sock_path.display(),
+            agent_ed25519.sock_path.display()
+        ),
+        None::<OsString>,
+    )?;
+
+    let keys_before = mux_agent.list()?;
+    assert_eq!(keys_before.len(), 2);
+
+    mux_agent.lock("test-passphrase")?;
+    assert_no_keys_in_agent(&mux_agent)?;
+
+    // Verify upstream agents are also locked directly
+    assert_no_keys_in_agent(&agent_rsa)?;
+    assert_no_keys_in_agent(&agent_ed25519)?;
+
+    mux_agent.unlock("test-passphrase")?;
+
+    let keys_after = mux_agent.list()?;
+    assert_eq!(keys_after.len(), 2);
 
     Ok(())
 }

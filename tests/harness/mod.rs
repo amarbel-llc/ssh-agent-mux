@@ -2,6 +2,8 @@ use std::{
     ffi::{OsStr, OsString},
     fs,
     io::{self, Write},
+    os::unix::fs::PermissionsExt,
+    path::Path,
     time::{Duration, Instant},
 };
 
@@ -115,6 +117,45 @@ impl SshAgentInstance {
             .run()
             .map_err(|e| map_binary_notfound_error("ssh-add", e))?;
 
+        Ok(())
+    }
+
+    fn make_askpass_script(passphrase: &str) -> io::Result<tempfile::TempPath> {
+        let mut script = tempfile::Builder::new()
+            .prefix("askpass_")
+            .suffix(".sh")
+            .tempfile_in(std::env::temp_dir())?;
+        write!(script, "#!/bin/sh\nprintf '%s\\n' '{}'", passphrase)?;
+        let path = script.into_temp_path();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
+        Ok(path)
+    }
+
+    pub fn lock(&self, passphrase: &str) -> io::Result<()> {
+        let askpass = Self::make_askpass_script(passphrase)?;
+        cmd!("ssh-add", "-x")
+            .env("SSH_AUTH_SOCK", &self.sock_path)
+            .env("SSH_ASKPASS", AsRef::<Path>::as_ref(&askpass))
+            .env("SSH_ASKPASS_REQUIRE", "force")
+            .env_remove("DISPLAY")
+            .stdout_capture()
+            .stderr_capture()
+            .run()
+            .map_err(|e| map_binary_notfound_error("ssh-add", e))?;
+        Ok(())
+    }
+
+    pub fn unlock(&self, passphrase: &str) -> io::Result<()> {
+        let askpass = Self::make_askpass_script(passphrase)?;
+        cmd!("ssh-add", "-X")
+            .env("SSH_AUTH_SOCK", &self.sock_path)
+            .env("SSH_ASKPASS", AsRef::<Path>::as_ref(&askpass))
+            .env("SSH_ASKPASS_REQUIRE", "force")
+            .env_remove("DISPLAY")
+            .stdout_capture()
+            .stderr_capture()
+            .run()
+            .map_err(|e| map_binary_notfound_error("ssh-add", e))?;
         Ok(())
     }
 

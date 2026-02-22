@@ -21,7 +21,8 @@ use tokio::{
 type KnownPubKeysMap = HashMap<PubKeyData, PathBuf>;
 type KnownPubKeys = Arc<Mutex<KnownPubKeysMap>>;
 
-/// Only the `request_identities`, `sign`, `add_identity`, and `extension` commands are implemented.
+/// Only the `request_identities`, `sign`, `add_identity`, `lock`, `unlock`, and `extension`
+/// commands are implemented.
 /// For `extension`, only the `session-bind@openssh.com` and `query` extensions are supported.
 #[ssh_agent_lib::async_trait]
 impl Session for MuxAgent {
@@ -114,6 +115,52 @@ impl Session for MuxAgent {
             }
             _ => Err(AgentError::Failure),
         }
+    }
+
+    async fn lock(&mut self, key: String) -> Result<(), AgentError> {
+        log::trace!("incoming: lock");
+        for sock_path in &self.socket_paths {
+            let mut client = self.connect_upstream_agent(sock_path).await?;
+            timeout(self.agent_timeout, client.lock(key.clone()))
+                .await
+                .map_err(|_| {
+                    AgentError::Other(
+                        format!(
+                            "Lock request timed out on upstream agent: {}",
+                            sock_path.display()
+                        )
+                        .into(),
+                    )
+                })??;
+            log::info!(
+                "Locked upstream agent <{}>",
+                sock_path.display()
+            );
+        }
+        Ok(())
+    }
+
+    async fn unlock(&mut self, key: String) -> Result<(), AgentError> {
+        log::trace!("incoming: unlock");
+        for sock_path in &self.socket_paths {
+            let mut client = self.connect_upstream_agent(sock_path).await?;
+            timeout(self.agent_timeout, client.unlock(key.clone()))
+                .await
+                .map_err(|_| {
+                    AgentError::Other(
+                        format!(
+                            "Unlock request timed out on upstream agent: {}",
+                            sock_path.display()
+                        )
+                        .into(),
+                    )
+                })??;
+            log::info!(
+                "Unlocked upstream agent <{}>",
+                sock_path.display()
+            );
+        }
+        Ok(())
     }
 
     async fn add_identity(
