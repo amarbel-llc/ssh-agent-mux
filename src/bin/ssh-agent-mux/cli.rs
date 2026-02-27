@@ -40,34 +40,49 @@ struct Args {
     config: <Config as ClapSerde>::Opt,
 }
 
+fn default_enabled() -> bool {
+    true
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct AgentConfig {
+    pub name: String,
+    pub socket_path: PathBuf,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
 #[derive(ClapSerde, Clone, Serialize)]
+#[serde(rename_all = "kebab-case")]
 pub struct Config {
     /// Listen path
     #[default(PathBuf::from(concat!("~/.local/state/", env!("CARGO_PKG_NAME"), "/agent.sock")))]
-    #[arg(short, long = "listen")]
+    #[arg(long = "listen-path")]
     pub listen_path: PathBuf,
 
     /// Log level for agent
     #[default(LogLevel::Warn)]
-    #[arg(long, value_enum)]
+    #[arg(long = "log-level", value_enum)]
     pub log_level: LogLevel,
 
     /// Optional log file for agent (logs to standard output, otherwise)
-    #[arg(long, num_args = 1)]
+    #[arg(long = "log-file", num_args = 1)]
     pub log_file: Option<PathBuf>,
-
-    /// Agent sockets to multiplex
-    #[arg()]
-    pub agent_sock_paths: Vec<PathBuf>,
-
-    /// Optional agent socket to forward add_identity requests to
-    #[arg(long)]
-    pub added_keys: Option<PathBuf>,
 
     /// Timeout in seconds for upstream agent operations (default: 5)
     #[default(5)]
-    #[arg(long)]
+    #[arg(long = "agent-timeout")]
     pub agent_timeout: u64,
+
+    /// Upstream agents to multiplex
+    #[arg(skip)]
+    #[default(Vec::new())]
+    pub agents: Vec<AgentConfig>,
+
+    /// Name of agent to forward add_identity requests to
+    #[arg(skip)]
+    pub add_new_keys_to: Option<String>,
 
     // Following are part of command line args, but
     // not in configuration file
@@ -107,17 +122,54 @@ impl Config {
         config.log_file = config.log_file
             .map(|p| p.expand_tilde_owned())
             .transpose()?;
-        config.agent_sock_paths = config
-            .agent_sock_paths
+        config.agents = config
+            .agents
             .into_iter()
-            .map(|p| p.expand_tilde_owned())
-            .collect::<Result<_, _>>()?;
-        config.added_keys = config
-            .added_keys
-            .map(|p| p.expand_tilde_owned())
-            .transpose()?;
+            .map(|mut a| {
+                a.socket_path = a.socket_path.expand_tilde_owned()?;
+                Ok(a)
+            })
+            .collect::<EyreResult<Vec<_>>>()?;
+
+        // Validate agent names are unique
+        let mut seen_names = std::collections::HashSet::new();
+        for agent in &config.agents {
+            if !seen_names.insert(&agent.name) {
+                return Err(color_eyre::eyre::eyre!(
+                    "Duplicate agent name: {:?}",
+                    agent.name
+                ));
+            }
+        }
+
+        // Validate add-new-keys-to references an existing agent
+        if let Some(ref name) = config.add_new_keys_to {
+            if !config.agents.iter().any(|a| a.name == *name) {
+                return Err(color_eyre::eyre::eyre!(
+                    "add-new-keys-to references unknown agent: {:?}",
+                    name
+                ));
+            }
+        }
 
         Ok(config)
+    }
+
+    pub fn enabled_agent_socket_paths(&self) -> Vec<PathBuf> {
+        self.agents
+            .iter()
+            .filter(|a| a.enabled)
+            .map(|a| a.socket_path.clone())
+            .collect()
+    }
+
+    pub fn added_keys_socket_path(&self) -> Option<PathBuf> {
+        self.add_new_keys_to.as_ref().and_then(|name| {
+            self.agents
+                .iter()
+                .find(|a| a.name == *name)
+                .map(|a| a.socket_path.clone())
+        })
     }
 }
 
