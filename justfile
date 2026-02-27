@@ -9,11 +9,8 @@ build-nix:
 build-rust:
   nix develop --command cargo build
 
-test: test-rust
-  nix develop --command cargo test
-
-test-rust:
-  nix develop --command cargo test
+test:
+  TMPDIR=/tmp nix develop --command cargo test
 
 reinstall-local: build-nix
   ./result/bin/ssh-agent-mux --uninstall-service
