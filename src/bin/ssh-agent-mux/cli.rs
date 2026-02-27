@@ -240,13 +240,17 @@ mod tests {
 
         // Create a temporary config file with environment variables
         let config_content = r#"
-listen_path = "${TEST_HOME}/.ssh/agent-mux.sock"
-log_level = "info"
-log_file = "${TEST_HOME}/logs/ssh-agent-mux.log"
-agent_sock_paths = [
-    "${TEST_SOCK}",
-    "/tmp/ssh-agent-${TEST_USER}.sock"
-]
+listen-path = "${TEST_HOME}/.ssh/agent-mux.sock"
+log-level = "info"
+log-file = "${TEST_HOME}/logs/ssh-agent-mux.log"
+
+[[agents]]
+name = "test-agent"
+socket-path = "${TEST_SOCK}"
+
+[[agents]]
+name = "user-agent"
+socket-path = "/tmp/ssh-agent-${TEST_USER}.sock"
 "#;
 
         let mut temp_file = NamedTempFile::new()?;
@@ -262,5 +266,89 @@ agent_sock_paths = [
         assert!(expanded.contains("/tmp/ssh-agent-testuser.sock"));
 
         Ok(())
+    }
+
+    #[test]
+    fn test_duplicate_agent_names_rejected() {
+        let config_text = r#"
+[[agents]]
+name = "same"
+socket-path = "/tmp/a.sock"
+
+[[agents]]
+name = "same"
+socket-path = "/tmp/b.sock"
+"#;
+
+        let parsed = toml::from_str::<<Config as ClapSerde>::Opt>(config_text);
+        assert!(parsed.is_ok(), "TOML should parse");
+
+        let mut config = Config::from(parsed.unwrap());
+        config.listen_path = "/tmp/test-listen.sock".into();
+
+        let mut seen_names = std::collections::HashSet::new();
+        let has_dupe = config.agents.iter().any(|a| !seen_names.insert(&a.name));
+        assert!(has_dupe, "Should detect duplicate agent name");
+    }
+
+    #[test]
+    fn test_invalid_add_new_keys_to_rejected() {
+        let config_text = r#"
+add-new-keys-to = "nonexistent"
+
+[[agents]]
+name = "real"
+socket-path = "/tmp/a.sock"
+"#;
+
+        let parsed = toml::from_str::<<Config as ClapSerde>::Opt>(config_text).unwrap();
+        let config = Config::from(parsed);
+
+        let valid = config.add_new_keys_to.as_ref().map_or(true, |name| {
+            config.agents.iter().any(|a| a.name == *name)
+        });
+        assert!(!valid, "Should reject reference to nonexistent agent");
+    }
+
+    #[test]
+    fn test_enabled_filtering() {
+        let config_text = r#"
+[[agents]]
+name = "active"
+socket-path = "/tmp/active.sock"
+
+[[agents]]
+name = "disabled"
+socket-path = "/tmp/disabled.sock"
+enabled = false
+"#;
+
+        let parsed = toml::from_str::<<Config as ClapSerde>::Opt>(config_text).unwrap();
+        let config = Config::from(parsed);
+
+        let enabled_paths = config.enabled_agent_socket_paths();
+        assert_eq!(enabled_paths.len(), 1);
+        assert_eq!(enabled_paths[0], PathBuf::from("/tmp/active.sock"));
+    }
+
+    #[test]
+    fn test_add_new_keys_to_resolution() {
+        let config_text = r#"
+add-new-keys-to = "target"
+
+[[agents]]
+name = "other"
+socket-path = "/tmp/other.sock"
+
+[[agents]]
+name = "target"
+socket-path = "/tmp/target.sock"
+"#;
+
+        let parsed = toml::from_str::<<Config as ClapSerde>::Opt>(config_text).unwrap();
+        let config = Config::from(parsed);
+
+        let resolved = config.added_keys_socket_path();
+        assert_eq!(resolved, Some(PathBuf::from("/tmp/target.sock")));
     }
 }
