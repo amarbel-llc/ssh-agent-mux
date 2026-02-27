@@ -142,13 +142,22 @@ impl Config {
             }
         }
 
-        // Validate add-new-keys-to references an existing agent
+        // Validate add-new-keys-to references an existing, enabled agent
         if let Some(ref name) = config.add_new_keys_to {
-            if !config.agents.iter().any(|a| a.name == *name) {
-                return Err(color_eyre::eyre::eyre!(
-                    "add-new-keys-to references unknown agent: {:?}",
-                    name
-                ));
+            match config.agents.iter().find(|a| a.name == *name) {
+                None => {
+                    return Err(color_eyre::eyre::eyre!(
+                        "add-new-keys-to references unknown agent: {:?}",
+                        name
+                    ));
+                }
+                Some(agent) if !agent.enabled => {
+                    return Err(color_eyre::eyre::eyre!(
+                        "add-new-keys-to references disabled agent: {:?}",
+                        name
+                    ));
+                }
+                _ => {}
             }
         }
 

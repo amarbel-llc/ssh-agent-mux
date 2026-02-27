@@ -119,11 +119,15 @@ fn write_new_config_file(config: &Config) -> Result<()> {
     );
 
     let mut new_config = config.clone();
-    if config.agent_sock_paths.is_empty() {
+    if config.agents.is_empty() {
         match env::var("SSH_AUTH_SOCK") {
             Ok(v) => {
-                success_msg.write_str("with the current SSH_AUTh_SOCK as the upstream agent; please edit to add additional agents.")?;
-                new_config.agent_sock_paths.push(v.into());
+                success_msg.write_str("with the current SSH_AUTH_SOCK as the upstream agent; please edit to add additional agents.")?;
+                new_config.agents.push(crate::cli::AgentConfig {
+                    name: "default".into(),
+                    socket_path: v.into(),
+                    enabled: true,
+                });
             }
             Err(e) => {
                 let mut emsg = String::from("A new configuration file cannot be created: ");
@@ -143,7 +147,7 @@ fn write_new_config_file(config: &Config) -> Result<()> {
     } else {
         write!(
             success_msg,
-            "with the upstream agent socket paths specified on the command line."
+            "with the upstream agent socket paths specified in config."
         )?;
     }
 

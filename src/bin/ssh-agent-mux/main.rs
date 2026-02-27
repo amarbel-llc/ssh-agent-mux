@@ -55,8 +55,10 @@ async fn main() -> EyreResult<()> {
     let mut sighup = signal::unix::signal(SignalKind::hangup())?;
 
     loop {
+        let agent_paths = config.enabled_agent_socket_paths();
+        let added_keys_path = config.added_keys_socket_path();
         select! {
-            res = MuxAgent::run(&config.listen_path, &config.agent_sock_paths, config.added_keys.clone(), Duration::from_secs(config.agent_timeout)) => { res?; break },
+            res = MuxAgent::run(&config.listen_path, &agent_paths, added_keys_path, Duration::from_secs(config.agent_timeout)) => { res?; break },
             // Cleanly exit on interrupt and SIGTERM, allowing
             // MuxAgent to clean up
             _ = signal::ctrl_c() => { log::info!("Exiting on SIGINT"); break },
