@@ -9,7 +9,7 @@ use ssh_agent_lib::{
     agent::{self, Agent, ListeningSocket, Session},
     client,
     error::AgentError,
-    proto::{extension::QueryResponse, Extension, Identity, SignRequest},
+    proto::{extension::QueryResponse, Credential, Extension, Identity, SignRequest},
     ssh_key::{public::KeyData as PubKeyData, Signature},
 };
 use tokio::{
@@ -175,6 +175,8 @@ impl Session for MuxAgent {
                 added_keys_sock.display()
             );
 
+            let pubkey = pubkey_from_credential(&identity.credential);
+
             let mut client = self.connect_upstream_agent(added_keys_sock).await?;
             timeout(self.agent_timeout, client.add_identity(identity))
                 .await
@@ -186,11 +188,39 @@ impl Session for MuxAgent {
                         )
                         .into(),
                     )
-                })?
+                })??;
+
+            if let Some(pubkey) = pubkey {
+                let fingerprint = pubkey.fingerprint(Default::default());
+                log::debug!(
+                    "Caching added key {} -> <{}>",
+                    &fingerprint,
+                    added_keys_sock.display()
+                );
+                self.known_keys
+                    .lock()
+                    .await
+                    .insert(pubkey, added_keys_sock.clone());
+            }
+
+            Ok(())
         } else {
             log::error!("add_identity requested but no added_keys socket configured");
             Err(AgentError::Failure)
         }
+    }
+}
+
+fn pubkey_from_credential(credential: &Credential) -> Option<PubKeyData> {
+    match credential {
+        Credential::Key { privkey, .. } => match PubKeyData::try_from(privkey) {
+            Ok(pubkey) => Some(pubkey),
+            Err(e) => {
+                log::warn!("Failed to extract public key from added identity: {}", e);
+                None
+            }
+        },
+        Credential::Cert { certificate, .. } => Some(certificate.public_key().clone()),
     }
 }
 

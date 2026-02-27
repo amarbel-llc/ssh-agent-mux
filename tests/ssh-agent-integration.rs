@@ -133,6 +133,11 @@ socket-path = "{}""##,
     assert_eq!(keys_in_target.len(), 1);
     assert_eq!(keys_in_target[0], keys::TEST_KEY_RSA_PUB);
 
+    // Verify the mux agent immediately lists the added key (cache update)
+    let keys_in_mux = mux_agent.list()?;
+    assert_eq!(keys_in_mux.len(), 1);
+    assert_eq!(keys_in_mux[0], keys::TEST_KEY_RSA_PUB);
+
     Ok(())
 }
 
