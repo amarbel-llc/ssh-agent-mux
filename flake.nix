@@ -4,7 +4,7 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/6d41bc27aaf7b6a3ba6b169db3bd5d6159cfaa47";
     utils.url = "https://flakehub.com/f/numtide/flake-utils/0.1.102";
-    devenv-rust.url = "github:amarbel-llc/eng?dir=devenvs/rust";
+    devenv-rust.url = "github:amarbel-llc/purse-first?dir=devenvs/rust";
     devenv-rust.inputs.nixpkgs.follows = "nixpkgs";
     devenv-rust.inputs.utils.follows = "utils";
   };
@@ -52,7 +52,7 @@
           };
         };
 
-        devShells.default = devenv-rust.devShells.${system}.default;
+        devShells.default = devenv-rust.devShell.${system};
       }
     );
 }
