@@ -57,7 +57,9 @@ fn mux_with_one_agent() -> TestResult {
     let openssh_agent = make_openssh_agent_with_keys()?;
     let mux_agent = SshAgentInstance::new_mux(
         &format!(
-            r##"agent_sock_paths = ["{}"]"##,
+            r##"[[agents]]
+name = "upstream"
+socket-path = "{}""##,
             openssh_agent.sock_path.display()
         ),
         None::<OsString>,
@@ -79,7 +81,17 @@ fn mux_with_three_agents() -> TestResult {
 
     let mux_agent = SshAgentInstance::new_mux(
         &format!(
-            r##"agent_sock_paths = ["{}", "{}", "{}"]"##,
+            r##"[[agents]]
+name = "rsa"
+socket-path = "{}"
+
+[[agents]]
+name = "ecdsa"
+socket-path = "{}"
+
+[[agents]]
+name = "ed25519"
+socket-path = "{}""##,
             dbg!(&agent_rsa).sock_path.display(),
             dbg!(&agent_ecdsa).sock_path.display(),
             dbg!(&agent_ed25519).sock_path.display()
@@ -103,7 +115,11 @@ fn mux_add_identity_forwarding() -> TestResult {
     // Create a mux agent with added_keys pointing to the target agent
     let mux_agent = SshAgentInstance::new_mux(
         &format!(
-            r##"added_keys = "{}""##,
+            r##"add-new-keys-to = "target"
+
+[[agents]]
+name = "target"
+socket-path = "{}""##,
             target_agent.sock_path.display()
         ),
         None::<OsString>,
@@ -125,7 +141,9 @@ fn mux_lock_unlock() -> TestResult {
     let openssh_agent = make_openssh_agent_with_keys()?;
     let mux_agent = SshAgentInstance::new_mux(
         &format!(
-            r##"agent_sock_paths = ["{}"]"##,
+            r##"[[agents]]
+name = "upstream"
+socket-path = "{}""##,
             openssh_agent.sock_path.display()
         ),
         None::<OsString>,
@@ -151,7 +169,13 @@ fn mux_lock_unlock_multiple_agents() -> TestResult {
 
     let mux_agent = SshAgentInstance::new_mux(
         &format!(
-            r##"agent_sock_paths = ["{}", "{}"]"##,
+            r##"[[agents]]
+name = "rsa"
+socket-path = "{}"
+
+[[agents]]
+name = "ed25519"
+socket-path = "{}""##,
             agent_rsa.sock_path.display(),
             agent_ed25519.sock_path.display()
         ),

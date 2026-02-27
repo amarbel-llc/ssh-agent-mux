@@ -58,7 +58,7 @@ impl SshAgentInstance {
                 env!("CARGO_BIN_EXE_ssh-agent-mux"),
                 "--log-level",
                 "trace",
-                "--listen",
+                "--listen-path",
                 &sock_path
             ),
         };
