@@ -45,7 +45,7 @@ fn default_enabled() -> bool {
 }
 
 #[derive(Clone, Deserialize, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct AgentConfig {
     pub name: String,
     pub socket_path: PathBuf,
@@ -54,7 +54,7 @@ pub struct AgentConfig {
 }
 
 #[derive(ClapSerde, Clone, Serialize)]
-#[serde(rename_all = "kebab-case")]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct Config {
     /// Listen path
     #[default(PathBuf::from(concat!("~/.local/state/", env!("CARGO_PKG_NAME"), "/agent.sock")))]
@@ -329,6 +329,43 @@ enabled = false
         let enabled_paths = config.enabled_agent_socket_paths();
         assert_eq!(enabled_paths.len(), 1);
         assert_eq!(enabled_paths[0], PathBuf::from("/tmp/active.sock"));
+    }
+
+    #[test]
+    fn test_unknown_config_keys_rejected() {
+        let config_text = r#"
+add-keys-to = "target"
+
+[[agents]]
+name = "target"
+socket-path = "/tmp/target.sock"
+"#;
+
+        let result = toml::from_str::<<Config as ClapSerde>::Opt>(config_text);
+        match result {
+            Ok(_) => panic!("Should reject unknown key 'add-keys-to'"),
+            Err(err) => {
+                let msg = err.to_string();
+                assert!(
+                    msg.contains("unknown field"),
+                    "Error should mention unknown field, got: {}",
+                    msg
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_unknown_agent_keys_rejected() {
+        let config_text = r#"
+[[agents]]
+name = "test"
+socket-path = "/tmp/test.sock"
+socket_path = "/tmp/test.sock"
+"#;
+
+        let parsed = toml::from_str::<<Config as ClapSerde>::Opt>(config_text);
+        assert!(parsed.is_err(), "Should reject unknown key in agent config");
     }
 
     #[test]
