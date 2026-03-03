@@ -32,6 +32,10 @@ pub struct ServiceArgs {
     /// Install the user service manager configuration
     #[arg(long)]
     pub install_config: bool,
+
+    /// Validate the configuration file and print the resolved config
+    #[arg(long)]
+    pub validate_config: bool,
 }
 
 impl ServiceArgs {
@@ -41,10 +45,17 @@ impl ServiceArgs {
             || self.restart_service
             || self.uninstall_service
             || self.install_config
+            || self.validate_config
     }
 }
 
 pub fn handle_service_command(config: &Config) -> Result<()> {
+    if config.service.validate_config {
+        let config_toml = toml::to_string_pretty(config)?;
+        print!("{}", config_toml);
+        return Ok(());
+    }
+
     if config.service.install_config {
         if !config.config_path.try_exists()? {
             return write_new_config_file(config);
