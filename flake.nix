@@ -7,6 +7,8 @@
     devenv-rust.url = "github:amarbel-llc/purse-first?dir=devenvs/rust";
     devenv-rust.inputs.nixpkgs.follows = "nixpkgs";
     devenv-rust.inputs.utils.follows = "utils";
+    purse-first.url = "github:amarbel-llc/purse-first";
+    purse-first.inputs.nixpkgs.follows = "nixpkgs";
   };
 
   outputs =
@@ -14,6 +16,7 @@
     , nixpkgs
     , utils
     , devenv-rust
+    , purse-first
     ,
     }:
     utils.lib.eachDefaultSystem (
@@ -52,7 +55,13 @@
           };
         };
 
-        devShells.default = devenv-rust.devShell.${system};
+        devShells.default = pkgs.mkShell {
+          inputsFrom = [ devenv-rust.devShell.${system} ];
+          packages = [
+            pkgs.just
+            purse-first.packages.${system}.batman
+          ];
+        };
       }
     );
 }

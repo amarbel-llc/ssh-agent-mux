@@ -9,8 +9,15 @@ build-nix:
 build-rust:
   nix develop --command cargo build
 
-test:
+dir_build := "target"
+
+test: test-rust test-bats
+
+test-rust:
   TMPDIR=/tmp nix develop --command cargo test
+
+test-bats: build-rust
+  PATH="{{justfile_directory()}}/{{dir_build}}/debug:$PATH" just zz-tests_bats/test
 
 reinstall-local: build-nix
   ./result/bin/ssh-agent-mux --uninstall-service

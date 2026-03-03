@@ -1,0 +1,43 @@
+#! /usr/bin/env bats
+
+setup() {
+  load "$(dirname "$BATS_TEST_FILE")/common.bash"
+  setup_test_home
+  export output
+}
+
+teardown() {
+  teardown_test_home
+}
+
+function help_flag_succeeds { # @test
+  run_ssh_agent_mux --help
+  assert_success
+  assert_output --partial "ssh-agent-mux"
+}
+
+function version_flag_succeeds { # @test
+  run_ssh_agent_mux --version
+  assert_success
+  assert_output --partial "ssh-agent-mux"
+}
+
+function validate_config_succeeds_without_config_file { # @test
+  run_ssh_agent_mux --validate-config
+  assert_success
+  assert_output --partial "agents = []"
+}
+
+function install_config_creates_default_config { # @test
+  run_ssh_agent_mux --install-config
+  assert_success
+  assert [ -f "$XDG_CONFIG_HOME/ssh-agent-mux/ssh-agent-mux.toml" ]
+}
+
+function validate_config_succeeds_after_install_config { # @test
+  run_ssh_agent_mux --install-config
+  assert_success
+
+  run_ssh_agent_mux --validate-config
+  assert_success
+}
