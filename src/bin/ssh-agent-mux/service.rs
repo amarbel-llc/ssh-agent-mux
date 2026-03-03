@@ -36,6 +36,10 @@ pub struct ServiceArgs {
     /// Validate the configuration file and print the resolved config
     #[arg(long)]
     pub validate_config: bool,
+
+    /// Edit the configuration file in $VISUAL or $EDITOR
+    #[arg(long)]
+    pub edit_config: bool,
 }
 
 impl ServiceArgs {
@@ -46,6 +50,7 @@ impl ServiceArgs {
             || self.uninstall_service
             || self.install_config
             || self.validate_config
+            || self.edit_config
     }
 }
 
