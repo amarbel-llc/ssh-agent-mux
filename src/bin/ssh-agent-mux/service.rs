@@ -1,6 +1,6 @@
-use std::{env, ffi::OsString, fmt::Write, fs, io, path::PathBuf, process::Command};
+use std::{env, ffi::OsString, fmt::Write, fs, io, path::PathBuf, process};
 
-use clap_serde_derive::clap::{self, Args};
+use clap_serde_derive::clap::{self, Subcommand};
 use color_eyre::{
     eyre::{bail, eyre, Result, WrapErr},
     Section,
@@ -14,70 +14,71 @@ use crate::cli::Config;
 
 const SERVICE_IDENT: &str = concat!("net.ross-williams.", env!("CARGO_PKG_NAME"));
 
-#[derive(Args, Clone, Copy, Default)]
-#[group(multiple = false)]
-pub struct ServiceArgs {
-    /// Install the user service manager configuration
-    #[arg(long)]
-    pub install_service: bool,
+#[derive(Subcommand, Clone, Copy)]
+pub enum Command {
+    /// Manage the user service
+    Service {
+        #[command(subcommand)]
+        command: ServiceCommand,
+    },
+    /// Manage the configuration file
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
+}
 
-    /// Start the service if it is not started
-    #[arg(long)]
-    pub restart_service: bool,
-
+#[derive(Subcommand, Clone, Copy)]
+pub enum ServiceCommand {
+    /// Install the user service manager configuration and start the service
+    Install,
+    /// Stop and restart the user service
+    Restart,
     /// Uninstall the user service manager configuration
-    #[arg(long)]
-    pub uninstall_service: bool,
+    Uninstall,
+}
 
-    /// Install the user service manager configuration
-    #[arg(long)]
-    pub install_config: bool,
-
+#[derive(Subcommand, Clone, Copy)]
+pub enum ConfigCommand {
+    /// Generate a default configuration file
+    Install,
     /// Validate the configuration file and print the resolved config
-    #[arg(long)]
-    pub validate_config: bool,
-
-    /// Edit the configuration file in $VISUAL or $EDITOR
-    #[arg(long)]
-    pub edit_config: bool,
+    Validate,
+    /// Open the configuration file in $VISUAL or $EDITOR
+    Edit,
 }
 
-impl ServiceArgs {
-    // Return `true` if any of the service-related args have been supplied
-    pub fn any(&self) -> bool {
-        self.install_service
-            || self.restart_service
-            || self.uninstall_service
-            || self.install_config
-            || self.validate_config
-            || self.edit_config
+pub fn handle_command(command: &Command, config: &Config) -> Result<()> {
+    match command {
+        Command::Config { command } => handle_config_command(command, config),
+        Command::Service { command } => handle_service_command(command, config),
     }
 }
 
-pub fn handle_service_command(config: &Config) -> Result<()> {
-    if config.service.edit_config {
-        return handle_edit_config(config);
-    }
-
-    if config.service.validate_config {
-        let config_toml = toml::to_string_pretty(config)?;
-        print!("{}", config_toml);
-        return Ok(());
-    }
-
-    if config.service.install_config {
-        if !config.config_path.try_exists()? {
-            return write_new_config_file(config);
-        } else {
-            bail!("Config file at {} already exists. Delete it and run --install-config again if you want to re-generate", config.config_path.display());
+fn handle_config_command(command: &ConfigCommand, config: &Config) -> Result<()> {
+    match command {
+        ConfigCommand::Edit => handle_edit_config(config),
+        ConfigCommand::Validate => {
+            let config_toml = toml::to_string_pretty(config)?;
+            print!("{}", config_toml);
+            Ok(())
+        }
+        ConfigCommand::Install => {
+            if !config.config_path.try_exists()? {
+                write_new_config_file(config)
+            } else {
+                bail!("Config file at {} already exists. Delete it and run `ssh-agent-mux config install` again if you want to re-generate", config.config_path.display());
+            }
         }
     }
+}
 
+fn handle_service_command(command: &ServiceCommand, config: &Config) -> Result<()> {
     let manager = {
         let mut m = <dyn ServiceManager>::native()?;
         if let Err(err) = m.set_level(service_manager::ServiceLevel::User) {
             if err.kind() == io::ErrorKind::Unsupported {
-                return handle_set_level_error(&config.service);
+                return handle_set_level_error(command);
             } else {
                 Err(err)?
             }
@@ -87,54 +88,58 @@ pub fn handle_service_command(config: &Config) -> Result<()> {
 
     let label: service_manager::ServiceLabel =
         SERVICE_IDENT.parse().expect("SERVICE_IDENT is wrong");
-    if config.service.install_service {
-        if !config.config_path.try_exists()? {
-            write_new_config_file(config)?;
-        }
-        Config::validate_file(&config.config_path)
-            .wrap_err("config validation failed; service not installed")?;
-        manager.install(ServiceInstallCtx {
-            label: label.clone(),
-            program: env::current_exe().note(concat!(
-                "Could not install service because path to ",
-                env!("CARGO_CRATE_NAME"),
-                " could not be determined."
-            ))?,
-            args: vec![
-                OsString::from("--config"),
-                config.config_path.as_os_str().to_owned(),
-            ],
-            contents: None,
-            username: None,
-            working_directory: None,
-            environment: None,
-            autostart: true,
-            disable_restart_on_failure: false,
-        })?;
-        manager.start(ServiceStartCtx { label })?;
-        println!("Installed and started service {}", SERVICE_IDENT);
-    } else if config.service.restart_service {
-        Config::validate_file(&config.config_path)
-            .wrap_err("config validation failed; service not restarted")?;
-        let status = manager.status(ServiceStatusCtx {
-            label: label.clone(),
-        })?;
-        match status {
-            ServiceStatus::Running => {
-                manager.stop(ServiceStopCtx {
-                    label: label.clone(),
-                })?;
+    match command {
+        ServiceCommand::Install => {
+            if !config.config_path.try_exists()? {
+                write_new_config_file(config)?;
             }
-            ServiceStatus::NotInstalled => {
-                bail!("Service {SERVICE_IDENT} not installed; can't restart");
-            }
-            ServiceStatus::Stopped(_) => (),
+            Config::validate_file(&config.config_path)
+                .wrap_err("config validation failed; service not installed")?;
+            manager.install(ServiceInstallCtx {
+                label: label.clone(),
+                program: env::current_exe().note(concat!(
+                    "Could not install service because path to ",
+                    env!("CARGO_CRATE_NAME"),
+                    " could not be determined."
+                ))?,
+                args: vec![
+                    OsString::from("--config"),
+                    config.config_path.as_os_str().to_owned(),
+                ],
+                contents: None,
+                username: None,
+                working_directory: None,
+                environment: None,
+                autostart: true,
+                disable_restart_on_failure: false,
+            })?;
+            manager.start(ServiceStartCtx { label })?;
+            println!("Installed and started service {}", SERVICE_IDENT);
         }
-        manager.start(ServiceStartCtx { label })?;
-        println!("Restarted service {}", SERVICE_IDENT);
-    } else if config.service.uninstall_service {
-        manager.uninstall(ServiceUninstallCtx { label })?;
-        println!("Uninstalled service {}", SERVICE_IDENT);
+        ServiceCommand::Restart => {
+            Config::validate_file(&config.config_path)
+                .wrap_err("config validation failed; service not restarted")?;
+            let status = manager.status(ServiceStatusCtx {
+                label: label.clone(),
+            })?;
+            match status {
+                ServiceStatus::Running => {
+                    manager.stop(ServiceStopCtx {
+                        label: label.clone(),
+                    })?;
+                }
+                ServiceStatus::NotInstalled => {
+                    bail!("Service {SERVICE_IDENT} not installed; can't restart");
+                }
+                ServiceStatus::Stopped(_) => (),
+            }
+            manager.start(ServiceStartCtx { label })?;
+            println!("Restarted service {}", SERVICE_IDENT);
+        }
+        ServiceCommand::Uninstall => {
+            manager.uninstall(ServiceUninstallCtx { label })?;
+            println!("Uninstalled service {}", SERVICE_IDENT);
+        }
     }
 
     Ok(())
@@ -191,10 +196,10 @@ fn write_new_config_file(config: &Config) -> Result<()> {
     Ok(())
 }
 
-fn handle_set_level_error(args: &ServiceArgs) -> Result<()> {
+fn handle_set_level_error(command: &ServiceCommand) -> Result<()> {
     let mut err = eyre!("Automatic management of a user service is unsupported on this platform");
 
-    if args.install_service {
+    if matches!(command, ServiceCommand::Install) {
         let current_exe = env::current_exe().unwrap_or_else(|_| env!("CARGO_PKG_NAME").into());
         let current_exe_file_name = PathBuf::from(current_exe.file_name().unwrap());
         let arg0 = current_exe_file_name.display();
@@ -214,7 +219,7 @@ fi"##
 fn resolve_editor() -> Result<String> {
     env::var("VISUAL")
         .or_else(|_| env::var("EDITOR"))
-        .map_err(|_| eyre!("Set VISUAL or EDITOR environment variable to use --edit-config"))
+        .map_err(|_| eyre!("Set VISUAL or EDITOR environment variable to use `ssh-agent-mux config edit`"))
 }
 
 fn restart_service_if_running() -> Result<()> {
@@ -264,7 +269,7 @@ fn restart_service_if_running() -> Result<()> {
 fn handle_edit_config(config: &Config) -> Result<()> {
     if !config.config_path.try_exists()? {
         bail!(
-            "No config file found at {}; run --install-config first",
+            "No config file found at {}; run `ssh-agent-mux config install` first",
             config.config_path.display()
         );
     }
@@ -282,7 +287,7 @@ fn handle_edit_config(config: &Config) -> Result<()> {
     let temp_path = temp_file.into_temp_path();
     fs::write(&temp_path, &original_contents)?;
 
-    let status = Command::new(&editor)
+    let status = process::Command::new(&editor)
         .arg(&temp_path)
         .status()
         .wrap_err_with(|| format!("Failed to launch editor: {}", editor))?;

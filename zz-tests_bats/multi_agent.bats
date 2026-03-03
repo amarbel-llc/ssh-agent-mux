@@ -21,7 +21,7 @@ function validate_multiple_agents { # @test
 	socket-path = "/tmp/secondary.sock"
 	EOF
 
-  run_ssh_agent_mux --validate-config
+  run_ssh_agent_mux config validate
   assert_success
   assert_output --partial 'name = "default"'
   assert_output --partial 'name = "secondary"'
@@ -40,7 +40,7 @@ function validate_add_new_keys_to_valid_agent { # @test
 	socket-path = "/tmp/secondary.sock"
 	EOF
 
-  run_ssh_agent_mux --validate-config
+  run_ssh_agent_mux config validate
   assert_success
   assert_output --partial 'add-new-keys-to = "default"'
 }
@@ -54,7 +54,7 @@ function validate_add_new_keys_to_nonexistent_agent_fails { # @test
 	socket-path = "/tmp/default.sock"
 	EOF
 
-  run_ssh_agent_mux --validate-config
+  run_ssh_agent_mux config validate
   assert_failure
   assert_output --partial "add-new-keys-to references unknown agent"
 }
@@ -73,7 +73,7 @@ function validate_add_new_keys_to_disabled_agent_fails { # @test
 	enabled = false
 	EOF
 
-  run_ssh_agent_mux --validate-config
+  run_ssh_agent_mux config validate
   assert_failure
   assert_output --partial "add-new-keys-to references disabled agent"
 }
@@ -91,7 +91,7 @@ function validate_add_new_keys_to_second_agent { # @test
 	socket-path = "/tmp/secondary.sock"
 	EOF
 
-  run_ssh_agent_mux --validate-config
+  run_ssh_agent_mux config validate
   assert_success
   assert_output --partial 'add-new-keys-to = "secondary"'
 }
@@ -108,7 +108,7 @@ function validate_disabled_agent_shown_in_output { # @test
 	enabled = false
 	EOF
 
-  run_ssh_agent_mux --validate-config
+  run_ssh_agent_mux config validate
   assert_success
   assert_output --partial 'name = "enabled-agent"'
   assert_output --partial 'name = "disabled-agent"'

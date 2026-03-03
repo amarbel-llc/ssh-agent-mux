@@ -23,21 +23,21 @@ function version_flag_succeeds { # @test
 }
 
 function validate_config_succeeds_without_config_file { # @test
-  run_ssh_agent_mux --validate-config
+  run_ssh_agent_mux config validate
   assert_success
   assert_output --partial "agents = []"
 }
 
 function install_config_creates_default_config { # @test
-  run_ssh_agent_mux --install-config
+  run_ssh_agent_mux config install
   assert_success
   assert [ -f "$XDG_CONFIG_HOME/ssh-agent-mux/ssh-agent-mux.toml" ]
 }
 
 function validate_config_succeeds_after_install_config { # @test
-  run_ssh_agent_mux --install-config
+  run_ssh_agent_mux config install
   assert_success
 
-  run_ssh_agent_mux --validate-config
+  run_ssh_agent_mux config validate
   assert_success
 }

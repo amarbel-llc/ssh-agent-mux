@@ -30,7 +30,7 @@ fn install_eyre_hook() -> EyreResult<()> {
 async fn main() -> EyreResult<()> {
     install_eyre_hook()?;
 
-    let mut config = cli::Config::parse()?;
+    let (mut config, command) = cli::Config::parse()?;
 
     // Create parent directory for log file if it doesn't exist
     if let Some(ref log_file) = config.log_file {
@@ -42,8 +42,8 @@ async fn main() -> EyreResult<()> {
     // LoggerHandle must be held until program termination so file logging takes place
     let _logger = logging::setup_logger(config.log_level.into(), config.log_file.as_deref())?;
 
-    if config.service.any() {
-        return service::handle_service_command(&config);
+    if let Some(ref command) = command {
+        return service::handle_command(command, &config);
     }
 
     // TODO: detect and remove stale socket before binding. If
@@ -65,7 +65,7 @@ async fn main() -> EyreResult<()> {
             Some(_) = sigterm.recv() => { log::info!("Exiting on SIGTERM"); break },
             Some(_) = sighup.recv() => {
                 log::info!("Reloading configuration");
-                config = cli::Config::parse()?;
+                (config, _) = cli::Config::parse()?;
             }
         }
     }

@@ -50,7 +50,7 @@ fn run_edit_config(
         env!("CARGO_BIN_EXE_ssh-agent-mux"),
         "--config",
         config_path(config_dir),
-        "--edit-config"
+        "config", "edit"
     )
     .env("EDITOR", editor)
     .env_remove("VISUAL")
@@ -64,7 +64,7 @@ fn run_edit_config(
             env!("CARGO_BIN_EXE_ssh-agent-mux"),
             "--config",
             config_path(config_dir),
-            "--edit-config"
+            "config", "edit"
         )
     })
 }
@@ -181,7 +181,7 @@ fn edit_config_missing_config() -> TestResult {
         env!("CARGO_BIN_EXE_ssh-agent-mux"),
         "--config",
         dir.path().join("nonexistent.toml").display().to_string(),
-        "--edit-config"
+        "config", "edit"
     )
     .env("EDITOR", AsRef::<Path>::as_ref(&editor))
     .env_remove("VISUAL")
@@ -194,7 +194,7 @@ fn edit_config_missing_config() -> TestResult {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("No config file found") || stderr.contains("install-config"),
+        stderr.contains("No config file found") || stderr.contains("config install"),
         "expected missing config error, got: {stderr}"
     );
 
@@ -235,7 +235,7 @@ socket-path = "/tmp/test-agent.sock"
         env!("CARGO_BIN_EXE_ssh-agent-mux"),
         "--config",
         link_file.display().to_string(),
-        "--edit-config"
+        "config", "edit"
     )
     .env("EDITOR", AsRef::<Path>::as_ref(&editor))
     .env_remove("VISUAL")
@@ -273,7 +273,7 @@ fn edit_config_no_editor_set() -> TestResult {
         env!("CARGO_BIN_EXE_ssh-agent-mux"),
         "--config",
         config_path(dir.path()),
-        "--edit-config"
+        "config", "edit"
     )
     .env_remove("VISUAL")
     .env_remove("EDITOR")

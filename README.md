@@ -54,16 +54,16 @@ Download binaries for various operating systems and architectures from the [rele
 ### Linux (systemd)
 
 ```console
-$ ssh-agent-mux --install-service
+$ ssh-agent-mux service install
 
-$ ssh-agent-mux --restart-service
+$ ssh-agent-mux service restart
 OR
 $ systemctl --user enable --now ssh-agent-mux.service
 ```
 
 ### macOS
 ```console
-$ ssh-agent-mux --install-service
+$ ssh-agent-mux service install
 ```
 
 Service will automatically start as soon as it is installed.

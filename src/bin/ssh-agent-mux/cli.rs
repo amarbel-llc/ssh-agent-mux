@@ -38,6 +38,9 @@ struct Args {
     /// Config from file or args
     #[command(flatten)]
     config: <Config as ClapSerde>::Opt,
+
+    #[command(subcommand)]
+    command: Option<service::Command>,
 }
 
 fn default_enabled() -> bool {
@@ -90,10 +93,6 @@ pub struct Config {
     #[arg(skip)]
     #[serde(skip_deserializing, skip_serializing)]
     pub config_path: PathBuf,
-
-    #[serde(skip_deserializing, skip_serializing)]
-    #[command(flatten)]
-    pub service: service::ServiceArgs,
 }
 
 impl Config {
@@ -155,7 +154,7 @@ impl Config {
         Ok(())
     }
 
-    pub fn parse() -> EyreResult<Self> {
+    pub fn parse() -> EyreResult<(Self, Option<service::Command>)> {
         let mut args = Args::parse();
 
         let config_path = args.config_path.or_else(|| default_config_path().ok());
@@ -187,7 +186,7 @@ impl Config {
         };
 
         config.config_path = config_path.unwrap_or_default();
-        config.expand_and_validate()
+        Ok((config.expand_and_validate()?, args.command))
     }
 
     pub fn enabled_agent_socket_paths(&self) -> Vec<PathBuf> {
