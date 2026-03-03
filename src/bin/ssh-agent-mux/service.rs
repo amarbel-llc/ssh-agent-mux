@@ -2,7 +2,7 @@ use std::{env, fmt::Write, fs, io, path::PathBuf};
 
 use clap_serde_derive::clap::{self, Args};
 use color_eyre::{
-    eyre::{bail, eyre, Result},
+    eyre::{bail, eyre, Result, WrapErr},
     Section,
 };
 use service_manager::{
@@ -82,6 +82,8 @@ pub fn handle_service_command(config: &Config) -> Result<()> {
         if !config.config_path.try_exists()? {
             write_new_config_file(config)?;
         }
+        Config::validate_file(&config.config_path)
+            .wrap_err("config validation failed; service not installed")?;
         manager.install(ServiceInstallCtx {
             label,
             program: env::current_exe().note(concat!(
@@ -99,6 +101,8 @@ pub fn handle_service_command(config: &Config) -> Result<()> {
         })?;
         println!("Installed service {}", SERVICE_IDENT);
     } else if config.service.restart_service {
+        Config::validate_file(&config.config_path)
+            .wrap_err("config validation failed; service not restarted")?;
         let status = manager.status(ServiceStatusCtx {
             label: label.clone(),
         })?;

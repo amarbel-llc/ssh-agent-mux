@@ -1,4 +1,4 @@
-use std::{env, fs::File, io::Read, path::PathBuf};
+use std::{env, fs::File, io::Read, path::{Path, PathBuf}};
 
 use clap_serde_derive::{
     clap::{self, Parser, ValueEnum},
@@ -97,6 +97,64 @@ pub struct Config {
 }
 
 impl Config {
+    fn expand_and_validate(mut self) -> EyreResult<Self> {
+        self.listen_path = self.listen_path.expand_tilde_owned()?;
+        self.log_file = self
+            .log_file
+            .map(|p| p.expand_tilde_owned())
+            .transpose()?;
+        self.agents = self
+            .agents
+            .into_iter()
+            .map(|mut a| {
+                a.socket_path = a.socket_path.expand_tilde_owned()?;
+                Ok(a)
+            })
+            .collect::<EyreResult<Vec<_>>>()?;
+
+        // Validate agent names are unique
+        let mut seen_names = std::collections::HashSet::new();
+        for agent in &self.agents {
+            if !seen_names.insert(&agent.name) {
+                return Err(color_eyre::eyre::eyre!(
+                    "Duplicate agent name: {:?}",
+                    agent.name
+                ));
+            }
+        }
+
+        // Validate add-new-keys-to references an existing, enabled agent
+        if let Some(ref name) = self.add_new_keys_to {
+            match self.agents.iter().find(|a| a.name == *name) {
+                None => {
+                    return Err(color_eyre::eyre::eyre!(
+                        "add-new-keys-to references unknown agent: {:?}",
+                        name
+                    ));
+                }
+                Some(agent) if !agent.enabled => {
+                    return Err(color_eyre::eyre::eyre!(
+                        "add-new-keys-to references disabled agent: {:?}",
+                        name
+                    ));
+                }
+                _ => {}
+            }
+        }
+
+        Ok(self)
+    }
+
+    pub fn validate_file(path: &Path) -> EyreResult<()> {
+        let mut f = File::open(path)?;
+        let mut config_text = String::new();
+        f.read_to_string(&mut config_text)?;
+        let expanded = expand_env_vars(&config_text)?;
+        let file_config = toml::from_str::<<Config as ClapSerde>::Opt>(&expanded)?;
+        Config::from(file_config).expand_and_validate()?;
+        Ok(())
+    }
+
     pub fn parse() -> EyreResult<Self> {
         let mut args = Args::parse();
 
@@ -118,50 +176,7 @@ impl Config {
         };
 
         config.config_path = config_path.unwrap_or_default();
-        config.listen_path = config.listen_path.expand_tilde_owned()?;
-        config.log_file = config.log_file
-            .map(|p| p.expand_tilde_owned())
-            .transpose()?;
-        config.agents = config
-            .agents
-            .into_iter()
-            .map(|mut a| {
-                a.socket_path = a.socket_path.expand_tilde_owned()?;
-                Ok(a)
-            })
-            .collect::<EyreResult<Vec<_>>>()?;
-
-        // Validate agent names are unique
-        let mut seen_names = std::collections::HashSet::new();
-        for agent in &config.agents {
-            if !seen_names.insert(&agent.name) {
-                return Err(color_eyre::eyre::eyre!(
-                    "Duplicate agent name: {:?}",
-                    agent.name
-                ));
-            }
-        }
-
-        // Validate add-new-keys-to references an existing, enabled agent
-        if let Some(ref name) = config.add_new_keys_to {
-            match config.agents.iter().find(|a| a.name == *name) {
-                None => {
-                    return Err(color_eyre::eyre::eyre!(
-                        "add-new-keys-to references unknown agent: {:?}",
-                        name
-                    ));
-                }
-                Some(agent) if !agent.enabled => {
-                    return Err(color_eyre::eyre::eyre!(
-                        "add-new-keys-to references disabled agent: {:?}",
-                        name
-                    ));
-                }
-                _ => {}
-            }
-        }
-
-        Ok(config)
+        config.expand_and_validate()
     }
 
     pub fn enabled_agent_socket_paths(&self) -> Vec<PathBuf> {
