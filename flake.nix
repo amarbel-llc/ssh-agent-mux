@@ -60,6 +60,7 @@
           packages = [
             pkgs.just
             purse-first.packages.${system}.batman
+            purse-first.packages.${system}.tap-dancer
           ];
         };
       }

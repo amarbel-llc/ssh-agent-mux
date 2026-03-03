@@ -14,7 +14,7 @@ dir_build := "target"
 test: test-rust test-bats
 
 test-rust:
-  TMPDIR=/tmp nix develop --command cargo test
+  TMPDIR=/tmp nix develop --command tap-dancer cargo-test -skip-empty
 
 test-bats: build-rust
   PATH="{{justfile_directory()}}/{{dir_build}}/debug:$PATH" just zz-tests_bats/test
