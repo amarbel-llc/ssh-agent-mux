@@ -1,4 +1,4 @@
-use std::{env, ffi::OsString, fmt::Write, fs, io, path::PathBuf};
+use std::{env, ffi::OsString, fmt::Write, fs, io, path::PathBuf, process::Command};
 
 use clap_serde_derive::clap::{self, Args};
 use color_eyre::{
@@ -55,6 +55,10 @@ impl ServiceArgs {
 }
 
 pub fn handle_service_command(config: &Config) -> Result<()> {
+    if config.service.edit_config {
+        return handle_edit_config(config);
+    }
+
     if config.service.validate_config {
         let config_toml = toml::to_string_pretty(config)?;
         print!("{}", config_toml);
@@ -206,3 +210,120 @@ fi"##
 
     Err(err)
 }
+
+fn resolve_editor() -> Result<String> {
+    env::var("VISUAL")
+        .or_else(|_| env::var("EDITOR"))
+        .map_err(|_| eyre!("Set VISUAL or EDITOR environment variable to use --edit-config"))
+}
+
+fn restart_service_if_running() -> Result<()> {
+    let manager = match <dyn ServiceManager>::native() {
+        Ok(mut m) => {
+            if let Err(err) = m.set_level(service_manager::ServiceLevel::User) {
+                if err.kind() == io::ErrorKind::Unsupported {
+                    println!("Service management not supported on this platform; skipping restart");
+                    return Ok(());
+                }
+                return Err(err.into());
+            }
+            m
+        }
+        Err(_) => {
+            println!("No service manager available; skipping restart");
+            return Ok(());
+        }
+    };
+
+    let label: service_manager::ServiceLabel =
+        SERVICE_IDENT.parse().expect("SERVICE_IDENT is wrong");
+
+    let status = manager.status(ServiceStatusCtx {
+        label: label.clone(),
+    })?;
+
+    match status {
+        ServiceStatus::Running => {
+            manager.stop(ServiceStopCtx {
+                label: label.clone(),
+            })?;
+            manager.start(ServiceStartCtx { label })?;
+            println!("Restarted service {}", SERVICE_IDENT);
+        }
+        ServiceStatus::Stopped(_) => {
+            println!("Service is stopped; skipping restart");
+        }
+        ServiceStatus::NotInstalled => {
+            println!("Service not installed; skipping restart");
+        }
+    }
+
+    Ok(())
+}
+
+fn handle_edit_config(config: &Config) -> Result<()> {
+    if !config.config_path.try_exists()? {
+        bail!(
+            "No config file found at {}; run --install-config first",
+            config.config_path.display()
+        );
+    }
+
+    let editor = resolve_editor()?;
+
+    let original_contents = fs::read(&config.config_path)?;
+
+    let temp_file = tempfile::Builder::new()
+        .prefix("ssh-agent-mux-")
+        .suffix(".toml")
+        .tempfile()
+        .wrap_err("Failed to create temporary file")?;
+
+    let temp_path = temp_file.into_temp_path();
+    fs::write(&temp_path, &original_contents)?;
+
+    let status = Command::new(&editor)
+        .arg(&temp_path)
+        .status()
+        .wrap_err_with(|| format!("Failed to launch editor: {}", editor))?;
+
+    if !status.success() {
+        let code = status
+            .code()
+            .map_or("unknown".to_string(), |c| c.to_string());
+        // Clean up temp file on editor failure
+        let _ = fs::remove_file(&temp_path);
+        bail!("Editor exited with status {}", code);
+    }
+
+    let edited_contents = fs::read(&temp_path)?;
+
+    if original_contents == edited_contents {
+        // temp_path is dropped here, which deletes the file
+        println!("No changes made");
+        return Ok(());
+    }
+
+    if let Err(err) = Config::validate_file(&temp_path) {
+        let kept_path = temp_path
+            .keep()
+            .map_err(|e| eyre!("Failed to persist temp file: {}", e.error))?;
+        return Err(err).wrap_err(format!(
+            "Validation failed; your edits are saved at {}",
+            kept_path.display()
+        ));
+    }
+
+    // Write through any symlinks by opening the config path directly
+    fs::OpenOptions::new()
+        .write(true)
+        .truncate(true)
+        .open(&config.config_path)
+        .and_then(|mut f| io::Write::write_all(&mut f, &edited_contents))
+        .wrap_err("Failed to write config file")?;
+
+    println!("Updated config at {}", config.config_path.display());
+
+    restart_service_if_running()
+}
+
