@@ -161,15 +161,26 @@ impl Config {
         let config_path = args.config_path.or_else(|| default_config_path().ok());
 
         let mut config = if let Some(ref path) = config_path {
-            if let Ok(mut f) = File::open(path) {
-                log::info!("Read configuration from {}", path.display());
-                let mut config_text = String::new();
-                f.read_to_string(&mut config_text)?;
-                let expanded_config_text = expand_env_vars(&config_text)?;
-                let file_config = toml::from_str::<<Config as ClapSerde>::Opt>(&expanded_config_text)?;
-                Config::from(file_config).merge(&mut args.config)
-            } else {
-                Config::from(&mut args.config)
+            match File::open(path) {
+                Ok(mut f) => {
+                    log::info!("Read configuration from {}", path.display());
+                    let mut config_text = String::new();
+                    f.read_to_string(&mut config_text)?;
+                    let expanded_config_text = expand_env_vars(&config_text)?;
+                    let file_config =
+                        toml::from_str::<<Config as ClapSerde>::Opt>(&expanded_config_text)?;
+                    Config::from(file_config).merge(&mut args.config)
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    Config::from(&mut args.config)
+                }
+                Err(e) => {
+                    return Err(color_eyre::eyre::eyre!(
+                        "Failed to read configuration from {}: {}",
+                        path.display(),
+                        e
+                    ));
+                }
             }
         } else {
             Config::from(&mut args.config)

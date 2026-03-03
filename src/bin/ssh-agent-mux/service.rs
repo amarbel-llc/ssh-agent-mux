@@ -1,4 +1,4 @@
-use std::{env, fmt::Write, fs, io, path::PathBuf};
+use std::{env, ffi::OsString, fmt::Write, fs, io, path::PathBuf};
 
 use clap_serde_derive::clap::{self, Args};
 use color_eyre::{
@@ -85,13 +85,16 @@ pub fn handle_service_command(config: &Config) -> Result<()> {
         Config::validate_file(&config.config_path)
             .wrap_err("config validation failed; service not installed")?;
         manager.install(ServiceInstallCtx {
-            label,
+            label: label.clone(),
             program: env::current_exe().note(concat!(
                 "Could not install service because path to ",
                 env!("CARGO_CRATE_NAME"),
                 " could not be determined."
             ))?,
-            args: Vec::default(),
+            args: vec![
+                OsString::from("--config"),
+                config.config_path.as_os_str().to_owned(),
+            ],
             contents: None,
             username: None,
             working_directory: None,
@@ -99,7 +102,8 @@ pub fn handle_service_command(config: &Config) -> Result<()> {
             autostart: true,
             disable_restart_on_failure: false,
         })?;
-        println!("Installed service {}", SERVICE_IDENT);
+        manager.start(ServiceStartCtx { label })?;
+        println!("Installed and started service {}", SERVICE_IDENT);
     } else if config.service.restart_service {
         Config::validate_file(&config.config_path)
             .wrap_err("config validation failed; service not restarted")?;
