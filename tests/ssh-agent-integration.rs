@@ -142,6 +142,44 @@ socket-path = "{}""##,
 }
 
 #[test]
+fn mux_add_identity_constrained_forwarding() -> TestResult {
+    // Create an openssh agent to receive forwarded constrained add_identity requests
+    let target_agent = SshAgentInstance::new_openssh()?;
+
+    // Verify the target agent is empty
+    assert!(target_agent.list()?.is_empty());
+
+    // Create a mux agent with added_keys pointing to the target agent
+    let mux_agent = SshAgentInstance::new_mux(
+        &format!(
+            r##"add-new-keys-to = "target"
+
+[[agents]]
+name = "target"
+socket-path = "{}""##,
+            target_agent.sock_path.display()
+        ),
+        None::<OsString>,
+    )?;
+
+    // Add a key with a lifetime constraint via the mux agent
+    // (sends SSH_AGENTC_ADD_ID_CONSTRAINED, message type 25)
+    mux_agent.add_with_lifetime(keys::TEST_KEY_ED25519, 3600)?;
+
+    // Verify the key was forwarded to the target agent
+    let keys_in_target = target_agent.list()?;
+    assert_eq!(keys_in_target.len(), 1);
+    assert_eq!(keys_in_target[0], keys::TEST_KEY_ED25519_PUB);
+
+    // Verify the mux agent immediately lists the added key (cache update)
+    let keys_in_mux = mux_agent.list()?;
+    assert_eq!(keys_in_mux.len(), 1);
+    assert_eq!(keys_in_mux[0], keys::TEST_KEY_ED25519_PUB);
+
+    Ok(())
+}
+
+#[test]
 fn mux_lock_unlock() -> TestResult {
     let openssh_agent = make_openssh_agent_with_keys()?;
     let mux_agent = SshAgentInstance::new_mux(

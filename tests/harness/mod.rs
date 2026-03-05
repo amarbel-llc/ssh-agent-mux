@@ -120,6 +120,17 @@ impl SshAgentInstance {
         Ok(())
     }
 
+    pub fn add_with_lifetime(&self, key: &str, lifetime_secs: u32) -> io::Result<()> {
+        // Add an ssh-key with a lifetime constraint (sends SSH_AGENTC_ADD_ID_CONSTRAINED)
+        cmd!("ssh-add", "-q", "-t", lifetime_secs.to_string(), "--", "-")
+            .env("SSH_AUTH_SOCK", &self.sock_path)
+            .stdin_bytes(key)
+            .run()
+            .map_err(|e| map_binary_notfound_error("ssh-add", e))?;
+
+        Ok(())
+    }
+
     fn make_askpass_script(passphrase: &str) -> io::Result<tempfile::TempPath> {
         let mut script = tempfile::Builder::new()
             .prefix("askpass_")

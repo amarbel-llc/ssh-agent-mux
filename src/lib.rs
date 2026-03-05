@@ -9,7 +9,10 @@ use ssh_agent_lib::{
     agent::{self, Agent, ListeningSocket, Session},
     client,
     error::AgentError,
-    proto::{extension::QueryResponse, Credential, Extension, Identity, SignRequest},
+    proto::{
+        extension::QueryResponse, AddIdentityConstrained, Credential, Extension, Identity,
+        SignRequest,
+    },
     ssh_key::{public::KeyData as PubKeyData, Signature},
 };
 use tokio::{
@@ -21,8 +24,8 @@ use tokio::{
 type KnownPubKeysMap = HashMap<PubKeyData, PathBuf>;
 type KnownPubKeys = Arc<Mutex<KnownPubKeysMap>>;
 
-/// Only the `request_identities`, `sign`, `add_identity`, `lock`, `unlock`, and `extension`
-/// commands are implemented.
+/// Only the `request_identities`, `sign`, `add_identity`, `add_identity_constrained`, `lock`,
+/// `unlock`, and `extension` commands are implemented.
 /// For `extension`, only the `session-bind@openssh.com` and `query` extensions are supported.
 #[ssh_agent_lib::async_trait]
 impl Session for MuxAgent {
@@ -206,6 +209,56 @@ impl Session for MuxAgent {
             Ok(())
         } else {
             log::error!("add_identity requested but no added_keys socket configured");
+            Err(AgentError::Failure)
+        }
+    }
+
+    async fn add_identity_constrained(
+        &mut self,
+        identity: AddIdentityConstrained,
+    ) -> Result<(), AgentError> {
+        log::trace!("incoming: add_identity_constrained");
+
+        if let Some(added_keys_sock) = &self.added_keys_sock {
+            log::info!(
+                "Forwarding add_identity_constrained request to upstream agent <{}>",
+                added_keys_sock.display()
+            );
+
+            let pubkey = pubkey_from_credential(&identity.identity.credential);
+
+            let mut client = self.connect_upstream_agent(added_keys_sock).await?;
+            timeout(
+                self.agent_timeout,
+                client.add_identity_constrained(identity),
+            )
+            .await
+            .map_err(|_| {
+                AgentError::Other(
+                    format!(
+                        "Add identity constrained request timed out on upstream agent: {}",
+                        added_keys_sock.display()
+                    )
+                    .into(),
+                )
+            })??;
+
+            if let Some(pubkey) = pubkey {
+                let fingerprint = pubkey.fingerprint(Default::default());
+                log::debug!(
+                    "Caching added key {} -> <{}>",
+                    &fingerprint,
+                    added_keys_sock.display()
+                );
+                self.known_keys
+                    .lock()
+                    .await
+                    .insert(pubkey, added_keys_sock.clone());
+            }
+
+            Ok(())
+        } else {
+            log::error!("add_identity_constrained requested but no added_keys socket configured");
             Err(AgentError::Failure)
         }
     }
