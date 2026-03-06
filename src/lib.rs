@@ -105,7 +105,7 @@ impl Session for MuxAgent {
                         Err(AgentError::Failure) => continue,
                         // Report but ignore any unexpected errors
                         Err(e) => {
-                            log::error!("Unexpected error on socket <{}> when requesting session-bind@openssh.com extension: {}", sock_path.display(), e);
+                            log::error!("Unexpected error on socket <{}> when requesting session-bind@openssh.com extension: {:?}", sock_path.display(), e);
                             continue;
                         }
                     }
@@ -397,10 +397,11 @@ impl MuxAgent {
         for sock_path in &self.socket_paths {
             let mut client = match self.connect_upstream_agent(sock_path).await {
                 Ok(c) => c,
-                Err(_) => {
+                Err(e) => {
                     log::warn!(
-                        "Ignoring missing upstream agent socket: {}",
-                        sock_path.display()
+                        "Ignoring missing upstream agent socket: {}: {:?}",
+                        sock_path.display(),
+                        e
                     );
                     continue;
                 }
@@ -414,7 +415,7 @@ impl MuxAgent {
                 Ok(Ok(ids)) => ids,
                 Ok(Err(e)) => {
                     log::warn!(
-                        "Failed to request identities from upstream agent socket <{}>: {}",
+                        "Failed to request identities from upstream agent socket <{}>: {:?}",
                         sock_path.display(),
                         e
                     );
