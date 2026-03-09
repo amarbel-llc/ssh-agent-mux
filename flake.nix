@@ -12,12 +12,12 @@
   };
 
   outputs =
-    { self
-    , nixpkgs
-    , utils
-    , devenv-rust
-    , purse-first
-    ,
+    {
+      self,
+      nixpkgs,
+      utils,
+      devenv-rust,
+      purse-first,
     }:
     utils.lib.eachDefaultSystem (
       system:
@@ -35,6 +35,9 @@
 
           cargoLock = {
             lockFile = ./Cargo.lock;
+            outputHashes = {
+              "ssh-agent-lib-0.4.0" = "sha256-R6GIPJkgAKuOUSRPIVCRM05oIzOMdqvq6yHdKd3Vyrs=";
+            };
           };
 
           nativeCheckInputs = [ pkgs.openssh ];
