@@ -429,6 +429,23 @@ impl MuxAgent {
                     continue;
                 }
             };
+            let agent_identities: Vec<Identity> = agent_identities
+                .into_iter()
+                .filter(|id| {
+                    let algo = id.pubkey.algorithm();
+                    if algo.as_str().contains("-cert-v01") {
+                        log::warn!(
+                            "Skipping certificate identity ({}) from upstream agent <{}>: \
+                             certificate identities cannot be proxied (ssh-agent-lib limitation)",
+                            id.pubkey.fingerprint(Default::default()),
+                            sock_path.display(),
+                        );
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .collect();
             {
                 for id in &agent_identities {
                     known_keys.insert(id.pubkey.clone(), sock_path.clone());
