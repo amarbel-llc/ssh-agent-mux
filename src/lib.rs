@@ -10,7 +10,7 @@ use ssh_agent_lib::{
     client,
     error::AgentError,
     proto::{
-        extension::QueryResponse, AddIdentityConstrained, Credential, Extension, Identity,
+        extension::QueryResponse, AddIdentityConstrained, Extension, Identity, PrivateCredential,
         SignRequest,
     },
     ssh_key::{public::KeyData as PubKeyData, Signature},
@@ -36,10 +36,11 @@ impl Session for MuxAgent {
     }
 
     async fn sign(&mut self, request: SignRequest) -> Result<Signature, AgentError> {
-        let fingerprint = request.pubkey.fingerprint(Default::default());
+        let pubkey = request.pubkey.key_data();
+        let fingerprint = pubkey.fingerprint(Default::default());
         log::trace!("incoming: sign({})", &fingerprint);
 
-        if let Some(agent_sock_path) = self.get_agent_sock_for_pubkey(&request.pubkey).await? {
+        if let Some(agent_sock_path) = self.get_agent_sock_for_pubkey(pubkey).await? {
             log::info!(
                 "Requesting signature with key {} from upstream agent <{}>",
                 &fingerprint,
@@ -264,16 +265,16 @@ impl Session for MuxAgent {
     }
 }
 
-fn pubkey_from_credential(credential: &Credential) -> Option<PubKeyData> {
+fn pubkey_from_credential(credential: &PrivateCredential) -> Option<PubKeyData> {
     match credential {
-        Credential::Key { privkey, .. } => match PubKeyData::try_from(privkey) {
+        PrivateCredential::Key { privkey, .. } => match PubKeyData::try_from(privkey) {
             Ok(pubkey) => Some(pubkey),
             Err(e) => {
                 log::warn!("Failed to extract public key from added identity: {}", e);
                 None
             }
         },
-        Credential::Cert { certificate, .. } => Some(certificate.public_key().clone()),
+        PrivateCredential::Cert { certificate, .. } => Some(certificate.public_key().clone()),
     }
 }
 
@@ -429,27 +430,8 @@ impl MuxAgent {
                     continue;
                 }
             };
-            let agent_identities: Vec<Identity> = agent_identities
-                .into_iter()
-                .filter(|id| {
-                    let algo = id.pubkey.algorithm();
-                    if algo.as_str().contains("-cert-v01") {
-                        log::warn!(
-                            "Skipping certificate identity ({}) from upstream agent <{}>: \
-                             certificate identities cannot be proxied (ssh-agent-lib limitation)",
-                            id.pubkey.fingerprint(Default::default()),
-                            sock_path.display(),
-                        );
-                        false
-                    } else {
-                        true
-                    }
-                })
-                .collect();
-            {
-                for id in &agent_identities {
-                    known_keys.insert(id.pubkey.clone(), sock_path.clone());
-                }
+            for id in &agent_identities {
+                known_keys.insert(id.pubkey.key_data().clone(), sock_path.clone());
             }
             log::trace!(
                 "Got {} identities from {}",
