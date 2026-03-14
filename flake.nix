@@ -2,7 +2,7 @@
   description = "Combine keys from multiple SSH agents into a single agent socket";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/6d41bc27aaf7b6a3ba6b169db3bd5d6159cfaa47";
+    nixpkgs.url = "github:NixOS/nixpkgs/3e20095fe3c6cbb1ddcef89b26969a69a1570776";
     utils.url = "https://flakehub.com/f/numtide/flake-utils/0.1.102";
     devenv-rust.url = "github:amarbel-llc/purse-first?dir=devenvs/rust";
     devenv-rust.inputs.nixpkgs.follows = "nixpkgs";
