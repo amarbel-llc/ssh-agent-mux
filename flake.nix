@@ -11,6 +11,10 @@
     devenv-rust.inputs.utils.follows = "utils";
     purse-first.url = "github:amarbel-llc/purse-first";
     purse-first.inputs.nixpkgs.follows = "nixpkgs";
+    bob.url = "github:amarbel-llc/bob";
+    bob.inputs.nixpkgs.follows = "nixpkgs";
+    bob.inputs.nixpkgs-master.follows = "nixpkgs-master";
+    bob.inputs.utils.follows = "utils";
   };
 
   outputs =
@@ -21,6 +25,7 @@
       utils,
       devenv-rust,
       purse-first,
+      bob,
     }:
     utils.lib.eachDefaultSystem (
       system:
@@ -66,7 +71,7 @@
           packages = [
             pkgs.just
             purse-first.packages.${system}.batman
-            purse-first.packages.${system}.tap-dancer
+            bob.packages.${system}.tap-dancer
           ];
         };
       }
