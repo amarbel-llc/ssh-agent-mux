@@ -3,9 +3,11 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/3e20095fe3c6cbb1ddcef89b26969a69a1570776";
+    nixpkgs-master.url = "github:NixOS/nixpkgs/e034e386767a6d00b65ac951821835bd977a08f7";
     utils.url = "https://flakehub.com/f/numtide/flake-utils/0.1.102";
     devenv-rust.url = "github:amarbel-llc/purse-first?dir=devenvs/rust";
     devenv-rust.inputs.nixpkgs.follows = "nixpkgs";
+    devenv-rust.inputs.nixpkgs-master.follows = "nixpkgs-master";
     devenv-rust.inputs.utils.follows = "utils";
     purse-first.url = "github:amarbel-llc/purse-first";
     purse-first.inputs.nixpkgs.follows = "nixpkgs";
@@ -15,6 +17,7 @@
     {
       self,
       nixpkgs,
+      nixpkgs-master,
       utils,
       devenv-rust,
       purse-first,
@@ -59,7 +62,7 @@
         };
 
         devShells.default = pkgs.mkShell {
-          inputsFrom = [ devenv-rust.devShell.${system} ];
+          inputsFrom = [ devenv-rust.devShells.${system}.default ];
           packages = [
             pkgs.just
             purse-first.packages.${system}.batman
