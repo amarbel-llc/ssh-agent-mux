@@ -50,7 +50,8 @@ fn run_edit_config(
         env!("CARGO_BIN_EXE_ssh-agent-mux"),
         "--config",
         config_path(config_dir),
-        "config", "edit"
+        "config",
+        "edit"
     )
     .env("EDITOR", editor)
     .env_remove("VISUAL")
@@ -64,7 +65,8 @@ fn run_edit_config(
             env!("CARGO_BIN_EXE_ssh-agent-mux"),
             "--config",
             config_path(config_dir),
-            "config", "edit"
+            "config",
+            "edit"
         )
     })
 }
@@ -80,8 +82,15 @@ fn edit_config_no_changes() -> TestResult {
     let output = run_edit_config(dir.path(), &editor).unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    assert!(output.status.success(), "expected success, stderr: {}", String::from_utf8_lossy(&output.stderr));
-    assert!(stdout.contains("No changes made"), "expected 'No changes made', got: {stdout}");
+    assert!(
+        output.status.success(),
+        "expected success, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("No changes made"),
+        "expected 'No changes made', got: {stdout}"
+    );
 
     Ok(())
 }
@@ -100,8 +109,15 @@ fn edit_config_valid_change() -> TestResult {
     let output = run_edit_config(dir.path(), &editor).unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    assert!(output.status.success(), "expected success, stderr: {}", String::from_utf8_lossy(&output.stderr));
-    assert!(stdout.contains("Updated config"), "expected 'Updated config', got: {stdout}");
+    assert!(
+        output.status.success(),
+        "expected success, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains("Updated config"),
+        "expected 'Updated config', got: {stdout}"
+    );
 
     let updated = fs::read_to_string(config_path(dir.path()))?;
     assert_ne!(original, updated);
@@ -118,9 +134,7 @@ fn edit_config_invalid_change_preserves_original() -> TestResult {
     let original = fs::read_to_string(config_path(dir.path()))?;
 
     // Editor that adds an unknown field (rejected by deny_unknown_fields)
-    let editor = make_editor_script(
-        r#"printf '\nbogus = true\n' >> "$1""#,
-    )?;
+    let editor = make_editor_script(r#"printf '\nbogus = true\n' >> "$1""#)?;
 
     let output = run_edit_config(dir.path(), &editor).unwrap();
 
@@ -181,7 +195,8 @@ fn edit_config_missing_config() -> TestResult {
         env!("CARGO_BIN_EXE_ssh-agent-mux"),
         "--config",
         dir.path().join("nonexistent.toml").display().to_string(),
-        "config", "edit"
+        "config",
+        "edit"
     )
     .env("EDITOR", AsRef::<Path>::as_ref(&editor))
     .env_remove("VISUAL")
@@ -235,7 +250,8 @@ socket-path = "/tmp/test-agent.sock"
         env!("CARGO_BIN_EXE_ssh-agent-mux"),
         "--config",
         link_file.display().to_string(),
-        "config", "edit"
+        "config",
+        "edit"
     )
     .env("EDITOR", AsRef::<Path>::as_ref(&editor))
     .env_remove("VISUAL")
@@ -244,7 +260,11 @@ socket-path = "/tmp/test-agent.sock"
     .stderr_capture()
     .run()?;
 
-    assert!(output.status.success(), "expected success, stderr: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "expected success, stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     // Symlink is preserved
     assert!(
@@ -273,7 +293,8 @@ fn edit_config_no_editor_set() -> TestResult {
         env!("CARGO_BIN_EXE_ssh-agent-mux"),
         "--config",
         config_path(dir.path()),
-        "config", "edit"
+        "config",
+        "edit"
     )
     .env_remove("VISUAL")
     .env_remove("EDITOR")

@@ -84,7 +84,12 @@ impl Session for MuxAgent {
                         Ok(c) => c,
                         Err(_) => continue,
                     };
-                    let result = match timeout(self.agent_timeout, client.extension(request.clone())).await {
+                    let result = match timeout(
+                        self.agent_timeout,
+                        client.extension(request.clone()),
+                    )
+                    .await
+                    {
                         Ok(r) => r,
                         Err(_) => {
                             log::warn!(
@@ -136,10 +141,7 @@ impl Session for MuxAgent {
                         .into(),
                     )
                 })??;
-            log::info!(
-                "Locked upstream agent <{}>",
-                sock_path.display()
-            );
+            log::info!("Locked upstream agent <{}>", sock_path.display());
         }
         Ok(())
     }
@@ -159,10 +161,7 @@ impl Session for MuxAgent {
                         .into(),
                     )
                 })??;
-            log::info!(
-                "Unlocked upstream agent <{}>",
-                sock_path.display()
-            );
+            log::info!("Unlocked upstream agent <{}>", sock_path.display());
         }
         Ok(())
     }
@@ -314,7 +313,10 @@ impl MuxAgent {
         );
         log::debug!("Upstream agent sockets: {:?}", &socket_paths);
         if let Some(ref added_keys) = added_keys_sock {
-            log::info!("add_identity requests will be forwarded to <{}>", added_keys.display());
+            log::info!(
+                "add_identity requests will be forwarded to <{}>",
+                added_keys.display()
+            );
         }
 
         let listen_sock = match SelfDeletingUnixListener::bind(listen_sock) {
@@ -341,18 +343,21 @@ impl MuxAgent {
         sock_path: impl AsRef<Path>,
     ) -> Result<Box<dyn Session>, AgentError> {
         let sock_path = sock_path.as_ref();
-        let stream = timeout(self.agent_timeout, tokio::net::UnixStream::connect(sock_path))
-            .await
-            .map_err(|_| {
-                AgentError::Other(
-                    format!(
-                        "Connection to upstream agent timed out: {}",
-                        sock_path.display()
-                    )
-                    .into(),
+        let stream = timeout(
+            self.agent_timeout,
+            tokio::net::UnixStream::connect(sock_path),
+        )
+        .await
+        .map_err(|_| {
+            AgentError::Other(
+                format!(
+                    "Connection to upstream agent timed out: {}",
+                    sock_path.display()
                 )
-            })?
-            .map_err(AgentError::IO)?;
+                .into(),
+            )
+        })?
+        .map_err(AgentError::IO)?;
         let client = client::connect(stream.into_std()?.into()).map_err(|e| {
             AgentError::Other(
                 format!(
@@ -407,29 +412,25 @@ impl MuxAgent {
                     continue;
                 }
             };
-            let agent_identities: Vec<Identity> = match timeout(
-                self.agent_timeout,
-                client.request_identities(),
-            )
-            .await
-            {
-                Ok(Ok(ids)) => ids,
-                Ok(Err(e)) => {
-                    log::warn!(
-                        "Failed to request identities from upstream agent socket <{}>: {:?}",
-                        sock_path.display(),
-                        e
-                    );
-                    continue;
-                }
-                Err(_) => {
-                    log::warn!(
-                        "Request identities timed out on upstream agent: {}",
-                        sock_path.display()
-                    );
-                    continue;
-                }
-            };
+            let agent_identities: Vec<Identity> =
+                match timeout(self.agent_timeout, client.request_identities()).await {
+                    Ok(Ok(ids)) => ids,
+                    Ok(Err(e)) => {
+                        log::warn!(
+                            "Failed to request identities from upstream agent socket <{}>: {:?}",
+                            sock_path.display(),
+                            e
+                        );
+                        continue;
+                    }
+                    Err(_) => {
+                        log::warn!(
+                            "Request identities timed out on upstream agent: {}",
+                            sock_path.display()
+                        );
+                        continue;
+                    }
+                };
             for id in &agent_identities {
                 known_keys.insert(id.pubkey.key_data().clone(), sock_path.clone());
             }

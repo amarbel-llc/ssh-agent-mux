@@ -20,7 +20,11 @@ fn make_openssh_agent_with_keys() -> io::Result<SshAgentInstance> {
 
 fn assert_no_keys_in_agent(agent: &SshAgentInstance) -> TestResult {
     let keys_in_agent = agent.list()?;
-    assert!(keys_in_agent.is_empty(), "Expected no keys, got: {:?}", keys_in_agent);
+    assert!(
+        keys_in_agent.is_empty(),
+        "Expected no keys, got: {:?}",
+        keys_in_agent
+    );
     Ok(())
 }
 

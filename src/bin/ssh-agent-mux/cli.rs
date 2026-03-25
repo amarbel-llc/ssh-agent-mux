@@ -1,4 +1,9 @@
-use std::{env, fs::File, io::Read, path::{Path, PathBuf}};
+use std::{
+    env,
+    fs::File,
+    io::Read,
+    path::{Path, PathBuf},
+};
 
 use clap_serde_derive::{
     clap::{self, Parser, ValueEnum},
@@ -22,7 +27,6 @@ fn default_config_path() -> EyreResult<PathBuf> {
         .join(env!("CARGO_PKG_NAME"))
         .join(concat!(env!("CARGO_PKG_NAME"), ".toml")))
 }
-
 
 fn expand_env_vars(text: &str) -> EyreResult<String> {
     Ok(shellexpand::env(text)?.into_owned())
@@ -98,10 +102,7 @@ pub struct Config {
 impl Config {
     fn expand_and_validate(mut self) -> EyreResult<Self> {
         self.listen_path = self.listen_path.expand_tilde_owned()?;
-        self.log_file = self
-            .log_file
-            .map(|p| p.expand_tilde_owned())
-            .transpose()?;
+        self.log_file = self.log_file.map(|p| p.expand_tilde_owned()).transpose()?;
         self.agents = self
             .agents
             .into_iter()
@@ -329,9 +330,10 @@ socket-path = "/tmp/a.sock"
         let parsed = toml::from_str::<<Config as ClapSerde>::Opt>(config_text).unwrap();
         let config = Config::from(parsed);
 
-        let valid = config.add_new_keys_to.as_ref().map_or(true, |name| {
-            config.agents.iter().any(|a| a.name == *name)
-        });
+        let valid = config
+            .add_new_keys_to
+            .as_ref()
+            .map_or(true, |name| config.agents.iter().any(|a| a.name == *name));
         assert!(!valid, "Should reject reference to nonexistent agent");
     }
 

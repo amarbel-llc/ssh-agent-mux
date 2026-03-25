@@ -219,7 +219,9 @@ fi"##
 fn resolve_editor() -> Result<String> {
     env::var("VISUAL")
         .or_else(|_| env::var("EDITOR"))
-        .map_err(|_| eyre!("Set VISUAL or EDITOR environment variable to use `ssh-agent-mux config edit`"))
+        .map_err(|_| {
+            eyre!("Set VISUAL or EDITOR environment variable to use `ssh-agent-mux config edit`")
+        })
 }
 
 fn restart_service_if_running() -> Result<()> {
@@ -331,4 +333,3 @@ fn handle_edit_config(config: &Config) -> Result<()> {
 
     restart_service_if_running()
 }
-
