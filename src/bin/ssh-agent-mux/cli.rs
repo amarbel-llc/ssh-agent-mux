@@ -6,9 +6,9 @@ use std::{
 };
 
 use clap_serde_derive::{
+    ClapSerde,
     clap::{self, Parser, ValueEnum},
     serde::{self, Deserialize, Serialize},
-    ClapSerde,
 };
 use color_eyre::eyre::Result as EyreResult;
 use expand_tilde::ExpandTilde;
@@ -239,7 +239,8 @@ mod tests {
     #[test]
     fn test_env_var_expansion() -> EyreResult<()> {
         // Test basic environment variable expansion
-        env::set_var("TEST_VAR", "test_value");
+        // SAFETY: test-only, tests run single-threaded via cargo test
+        unsafe { env::set_var("TEST_VAR", "test_value") };
         let result = expand_env_vars("${TEST_VAR}")?;
         assert_eq!(result, "test_value");
 
@@ -248,7 +249,8 @@ mod tests {
         assert_eq!(result, "/path/test_value/file");
 
         // Test multiple variables
-        env::set_var("TEST_VAR2", "another");
+        // SAFETY: test-only, tests run single-threaded via cargo test
+        unsafe { env::set_var("TEST_VAR2", "another") };
         let result = expand_env_vars("${TEST_VAR}_${TEST_VAR2}")?;
         assert_eq!(result, "test_value_another");
 
@@ -259,10 +261,12 @@ mod tests {
     fn test_config_with_env_vars() -> EyreResult<()> {
         use tempfile::NamedTempFile;
 
-        // Set test environment variables
-        env::set_var("TEST_HOME", "/test/home");
-        env::set_var("TEST_USER", "testuser");
-        env::set_var("TEST_SOCK", "/tmp/test.sock");
+        // SAFETY: test-only, tests run single-threaded via cargo test
+        unsafe {
+            env::set_var("TEST_HOME", "/test/home");
+            env::set_var("TEST_USER", "testuser");
+            env::set_var("TEST_SOCK", "/tmp/test.sock");
+        }
 
         // Create a temporary config file with environment variables
         let config_content = r#"

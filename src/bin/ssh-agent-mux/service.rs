@@ -2,8 +2,8 @@ use std::{env, ffi::OsString, fmt::Write, fs, io, path::PathBuf, process};
 
 use clap_serde_derive::clap::{self, Subcommand};
 use color_eyre::{
-    eyre::{bail, eyre, Result, WrapErr},
     Section,
+    eyre::{Result, WrapErr, bail, eyre},
 };
 use service_manager::{
     ServiceInstallCtx, ServiceManager, ServiceStartCtx, ServiceStatus, ServiceStatusCtx,
@@ -67,7 +67,10 @@ fn handle_config_command(command: &ConfigCommand, config: &Config) -> Result<()>
             if !config.config_path.try_exists()? {
                 write_new_config_file(config)
             } else {
-                bail!("Config file at {} already exists. Delete it and run `ssh-agent-mux config install` again if you want to re-generate", config.config_path.display());
+                bail!(
+                    "Config file at {} already exists. Delete it and run `ssh-agent-mux config install` again if you want to re-generate",
+                    config.config_path.display()
+                );
             }
         }
     }
