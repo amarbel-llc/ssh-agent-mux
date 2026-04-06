@@ -10,5 +10,5 @@ run_ssh_agent_mux() {
 write_config() {
   local config_dir="$XDG_CONFIG_HOME/ssh-agent-mux"
   mkdir -p "$config_dir"
-  cat > "$config_dir/ssh-agent-mux.toml"
+  cat >"$config_dir/ssh-agent-mux.toml"
 }

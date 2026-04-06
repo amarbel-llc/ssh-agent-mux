@@ -31,6 +31,7 @@ body = """
         - {{ commit.message | split(pat="\n") | first | upper_first | trim }}\
             {% if commit.remote.username and commit.remote.username != remote.github.owner %} by @{{ commit.remote.username }}{%- endif -%}
             {% if commit.remote.pr_number %} in \
+
             [#{{ commit.remote.pr_number }}]({{ self::remote_url() }}/pull/{{ commit.remote.pr_number }}) \
             {%- endif -%}
     {% endfor %}
@@ -43,6 +44,7 @@ body = """
 {% for contributor in github.contributors | filter(attribute="is_first_time", value=true) %}
   * @{{ contributor.username }} made their first contribution
     {%- if contributor.pr_number %} in \
+
       [#{{ contributor.pr_number }}]({{ self::remote_url() }}/pull/{{ contributor.pr_number }}) \
     {%- endif %}
 {%- endfor %}\n
@@ -55,9 +57,11 @@ footer = """
 
 {% for release in releases -%}
     {% if release.version and release.previous.version -%}
+
         [{{ release.version | trim_start_matches(pat="v") }}]: \
             {{ self::remote_url() }}/compare/{{ release.previous.version }}..{{ release.version }}
     {% elif release.previous.version -%}
+
         [unreleased]: {{ self::remote_url() }}/compare/{{ release.previous.version }}..HEAD
     {% endif -%}
 {% endfor %}

@@ -2,8 +2,8 @@ use std::env;
 use std::path::Path;
 
 use flexi_logger::{
-    FileSpec, FlexiLoggerError, LogSpecification, Logger, LoggerHandle,
     filter::{LogLineFilter, LogLineWriter},
+    FileSpec, FlexiLoggerError, LogSpecification, Logger, LoggerHandle,
 };
 use log::LevelFilter;
 

@@ -3,9 +3,9 @@
 set -e
 
 if [ -z "$1" ]; then
-	echo "Please provide a tag."
-	echo "Usage: ./release.sh v[X.Y.Z]"
-	exit 2
+  echo "Please provide a tag."
+  echo "Usage: ./release.sh v[X.Y.Z]"
+  exit 2
 fi
 
 echo "Preparing $1..."

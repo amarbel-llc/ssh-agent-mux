@@ -2,8 +2,8 @@ use std::{env, ffi::OsString, fmt::Write, fs, io, path::PathBuf, process};
 
 use clap_serde_derive::clap::{self, Subcommand};
 use color_eyre::{
+    eyre::{bail, eyre, Result, WrapErr},
     Section,
-    eyre::{Result, WrapErr, bail, eyre},
 };
 use service_manager::{
     ServiceInstallCtx, ServiceManager, ServiceStartCtx, ServiceStatus, ServiceStatusCtx,

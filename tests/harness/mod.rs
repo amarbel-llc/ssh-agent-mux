@@ -7,7 +7,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use duct::{Handle, cmd, unix::HandleExt};
+use duct::{cmd, unix::HandleExt, Handle};
 use tempfile::TempPath;
 
 const AGENT_TIMEOUT: Duration = Duration::from_secs(2);

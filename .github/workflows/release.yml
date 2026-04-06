@@ -49,30 +49,30 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - build: linux-amd64
-          os: ubuntu-latest
-          rust: nightly
-          target: x86_64-unknown-linux-musl
-          strip: x86_64-linux-musl-strip
-        - build: linux-arm64
-          os: ubuntu-latest
-          rust: stable
-          target: aarch64-unknown-linux-gnu
-          strip: aarch64-linux-gnu-strip
-          qemu: qemu-aarch64
-        - build: darwin-amd64
-          os: macos-latest
-          rust: nightly
-          target: x86_64-apple-darwin
-        - build: darwin-arm64
-          os: macos-latest
-          rust: nightly
-          target: aarch64-apple-darwin
-        - build: freebsd-amd64
-          os: ubuntu-latest
-          rust: nightly
-          target: x86_64-unknown-freebsd
-          strip: x86_64-unknown-freebsd13-strip
+          - build: linux-amd64
+            os: ubuntu-latest
+            rust: nightly
+            target: x86_64-unknown-linux-musl
+            strip: x86_64-linux-musl-strip
+          - build: linux-arm64
+            os: ubuntu-latest
+            rust: stable
+            target: aarch64-unknown-linux-gnu
+            strip: aarch64-linux-gnu-strip
+            qemu: qemu-aarch64
+          - build: darwin-amd64
+            os: macos-latest
+            rust: nightly
+            target: x86_64-apple-darwin
+          - build: darwin-arm64
+            os: macos-latest
+            rust: nightly
+            target: aarch64-apple-darwin
+          - build: freebsd-amd64
+            os: ubuntu-latest
+            rust: nightly
+            target: x86_64-unknown-freebsd
+            strip: x86_64-unknown-freebsd13-strip
 
     steps:
       - name: Checkout the repository
