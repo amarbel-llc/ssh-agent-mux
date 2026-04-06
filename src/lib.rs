@@ -26,7 +26,8 @@ type KnownPubKeys = Arc<Mutex<KnownPubKeysMap>>;
 
 /// Only the `request_identities`, `sign`, `add_identity`, `add_identity_constrained`, `lock`,
 /// `unlock`, and `extension` commands are implemented.
-/// For `extension`, only the `session-bind@openssh.com` and `query` extensions are supported.
+/// For `extension`, `query` and `session-bind@openssh.com` are handled directly;
+/// all other extensions are forwarded to upstream agents.
 #[ssh_agent_lib::async_trait]
 impl Session for MuxAgent {
     async fn request_identities(&mut self) -> Result<Vec<Identity>, AgentError> {
@@ -129,7 +130,43 @@ impl Session for MuxAgent {
                     Err(AgentError::Failure)
                 }
             }
-            _ => Err(AgentError::Failure),
+            _ => {
+                for sock_path in &self.socket_paths {
+                    let mut client = match self.connect_upstream_agent(sock_path).await {
+                        Ok(c) => c,
+                        Err(_) => continue,
+                    };
+                    let result = match timeout(
+                        self.agent_timeout,
+                        client.extension(request.clone()),
+                    )
+                    .await
+                    {
+                        Ok(r) => r,
+                        Err(_) => {
+                            log::warn!(
+                                "Extension request timed out on upstream agent: {}",
+                                sock_path.display()
+                            );
+                            continue;
+                        }
+                    };
+                    match result {
+                        Ok(v) => return Ok(v),
+                        Err(AgentError::Failure) => continue,
+                        Err(e) => {
+                            log::error!(
+                                "Unexpected error on socket <{}> when requesting {} extension: {:?}",
+                                sock_path.display(),
+                                request.name,
+                                e
+                            );
+                            continue;
+                        }
+                    }
+                }
+                Err(AgentError::Failure)
+            }
         }
     }
 
