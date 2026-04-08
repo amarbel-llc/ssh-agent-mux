@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     path::{Path, PathBuf},
     sync::Arc,
     time::Duration,
@@ -72,9 +72,53 @@ impl Session for MuxAgent {
     async fn extension(&mut self, request: Extension) -> Result<Option<Extension>, AgentError> {
         log::trace!("incoming: extension({})", request.name);
         match request.name.as_str() {
-            "query" => Ok(Some(Extension::new_message(QueryResponse {
-                extensions: ["session-bind@openssh.com"].map(String::from).to_vec(),
-            })?)),
+            "query" => {
+                let mut all_extensions =
+                    BTreeSet::from(["session-bind@openssh.com".to_string()]);
+
+                for sock_path in &self.socket_paths {
+                    let mut client = match self.connect_upstream_agent(sock_path).await {
+                        Ok(c) => c,
+                        Err(_) => continue,
+                    };
+                    let result = match timeout(
+                        self.agent_timeout,
+                        client.extension(request.clone()),
+                    )
+                    .await
+                    {
+                        Ok(r) => r,
+                        Err(_) => {
+                            log::warn!(
+                                "Query extension timed out on upstream agent: {}",
+                                sock_path.display()
+                            );
+                            continue;
+                        }
+                    };
+                    match result {
+                        Ok(Some(ext)) => {
+                            if let Ok(Some(qr)) = ext.parse_message::<QueryResponse>() {
+                                all_extensions.extend(qr.extensions);
+                            }
+                        }
+                        Ok(None) => continue,
+                        Err(AgentError::Failure) => continue,
+                        Err(e) => {
+                            log::warn!(
+                                "Query extension failed on upstream agent {}: {:?}",
+                                sock_path.display(),
+                                e
+                            );
+                            continue;
+                        }
+                    }
+                }
+
+                Ok(Some(Extension::new_message(QueryResponse {
+                    extensions: all_extensions.into_iter().collect(),
+                })?))
+            }
             "session-bind@openssh.com" => {
                 let mut session_bind_suceeded = false;
                 for sock_path in &self.socket_paths {
