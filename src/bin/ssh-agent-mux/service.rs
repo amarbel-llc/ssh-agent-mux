@@ -1,5 +1,26 @@
 use std::{env, ffi::OsString, fmt::Write, fs, io, path::PathBuf, process};
 
+/// Returns the program path preserving symlinks.
+///
+/// Uses argv[0] so that symlink paths (e.g. `~/eng/result/bin/ssh-agent-mux`)
+/// are kept as-is in launchd plists. Falls back to `env::current_exe()` if
+/// argv[0] is unavailable.
+fn program_path() -> Result<PathBuf> {
+    if let Some(argv0) = env::args_os().next() {
+        let path = PathBuf::from(argv0);
+        if path.as_os_str().is_empty() {
+            return env::current_exe().map_err(Into::into);
+        }
+        if path.is_absolute() {
+            return Ok(path);
+        }
+        // Make relative path absolute without resolving symlinks.
+        let cwd = env::current_dir()?;
+        return Ok(cwd.join(path));
+    }
+    env::current_exe().map_err(Into::into)
+}
+
 use clap_serde_derive::clap::{self, Subcommand};
 use color_eyre::{
     eyre::{bail, eyre, Result, WrapErr},
@@ -100,7 +121,7 @@ fn handle_service_command(command: &ServiceCommand, config: &Config) -> Result<(
                 .wrap_err("config validation failed; service not installed")?;
             manager.install(ServiceInstallCtx {
                 label: label.clone(),
-                program: env::current_exe().note(concat!(
+                program: program_path().note(concat!(
                     "Could not install service because path to ",
                     env!("CARGO_CRATE_NAME"),
                     " could not be determined."
@@ -203,7 +224,7 @@ fn handle_set_level_error(command: &ServiceCommand) -> Result<()> {
     let mut err = eyre!("Automatic management of a user service is unsupported on this platform");
 
     if matches!(command, ServiceCommand::Install) {
-        let current_exe = env::current_exe().unwrap_or_else(|_| env!("CARGO_PKG_NAME").into());
+        let current_exe = program_path().unwrap_or_else(|_| env!("CARGO_PKG_NAME").into());
         let current_exe_file_name = PathBuf::from(current_exe.file_name().unwrap());
         let arg0 = current_exe_file_name.display();
         err = err.suggestion(format!(
