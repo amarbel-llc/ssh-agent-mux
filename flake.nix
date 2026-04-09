@@ -62,6 +62,39 @@
           # on macOS due to environment and filesystem restrictions.
           doCheck = !pkgs.stdenv.hostPlatform.isDarwin;
 
+          postInstall = ''
+            mkdir -p $out/share/ssh-agent-mux
+            cat > $out/share/ssh-agent-mux/net.ross-williams.ssh-agent-mux.plist <<EOF
+            <?xml version="1.0" encoding="UTF-8"?>
+            <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+            <plist version="1.0">
+            <dict>
+              <key>Label</key>
+              <string>net.ross-williams.ssh-agent-mux</string>
+              <key>ProgramArguments</key>
+              <array>
+                <string>$out/bin/ssh-agent-mux</string>
+              </array>
+              <key>KeepAlive</key>
+              <true/>
+              <key>RunAtLoad</key>
+              <true/>
+            </dict>
+            </plist>
+            EOF
+            cat > $out/share/ssh-agent-mux/ssh-agent-mux.service <<EOF
+            [Unit]
+            Description=SSH Agent Multiplexer
+
+            [Service]
+            ExecStart=$out/bin/ssh-agent-mux
+            Restart=on-failure
+
+            [Install]
+            WantedBy=default.target
+            EOF
+          '';
+
           meta = with pkgs.lib; {
             description = "Combine keys from multiple SSH agents into a single agent socket";
             homepage = "https://github.com/friedenberg/ssh-agent-mux";

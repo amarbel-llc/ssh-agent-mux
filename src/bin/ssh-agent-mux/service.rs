@@ -1,39 +1,17 @@
-use std::{env, ffi::OsString, fmt::Write, fs, io, path::PathBuf, process};
-
-/// Returns the program path preserving symlinks.
-///
-/// Uses argv[0] so that symlink paths (e.g. `~/eng/result/bin/ssh-agent-mux`)
-/// are kept as-is in launchd plists. Falls back to `env::current_exe()` if
-/// argv[0] is unavailable.
-fn program_path() -> Result<PathBuf> {
-    if let Some(argv0) = env::args_os().next() {
-        let path = PathBuf::from(argv0);
-        if path.as_os_str().is_empty() {
-            return env::current_exe().map_err(Into::into);
-        }
-        if path.is_absolute() {
-            return Ok(path);
-        }
-        // Make relative path absolute without resolving symlinks.
-        let cwd = env::current_dir()?;
-        return Ok(cwd.join(path));
-    }
-    env::current_exe().map_err(Into::into)
-}
+use std::{env, fmt::Write, fs, io, path::PathBuf, process};
 
 use clap_serde_derive::clap::{self, Subcommand};
-use color_eyre::{
-    eyre::{bail, eyre, Result, WrapErr},
-    Section,
-};
-use service_manager::{
-    ServiceInstallCtx, ServiceManager, ServiceStartCtx, ServiceStatus, ServiceStatusCtx,
-    ServiceStopCtx, ServiceUninstallCtx,
-};
+use color_eyre::eyre::{bail, eyre, Result, WrapErr};
 
 use crate::cli::Config;
 
-const SERVICE_IDENT: &str = concat!("net.ross-williams.", env!("CARGO_PKG_NAME"));
+const SERVICE_LABEL: &str = concat!("net.ross-williams.", env!("CARGO_PKG_NAME"));
+
+#[cfg(target_os = "macos")]
+const PLIST_FILENAME: &str = concat!("net.ross-williams.", env!("CARGO_PKG_NAME"), ".plist");
+
+#[cfg(target_os = "linux")]
+const SYSTEMD_UNIT_FILENAME: &str = concat!(env!("CARGO_PKG_NAME"), ".service");
 
 #[derive(Subcommand, Clone, Copy)]
 pub enum Command {
@@ -97,77 +75,299 @@ fn handle_config_command(command: &ConfigCommand, config: &Config) -> Result<()>
     }
 }
 
-fn handle_service_command(command: &ServiceCommand, config: &Config) -> Result<()> {
-    let manager = {
-        let mut m = <dyn ServiceManager>::native()?;
-        if let Err(err) = m.set_level(service_manager::ServiceLevel::User) {
-            if err.kind() == io::ErrorKind::Unsupported {
-                return handle_set_level_error(command);
-            } else {
-                Err(err)?
-            }
-        }
-        m
-    };
+// ---------------------------------------------------------------------------
+// Unit file location
+// ---------------------------------------------------------------------------
 
-    let label: service_manager::ServiceLabel =
-        SERVICE_IDENT.parse().expect("SERVICE_IDENT is wrong");
-    match command {
-        ServiceCommand::Install => {
-            if !config.config_path.try_exists()? {
-                write_new_config_file(config)?;
-            }
-            Config::validate_file(&config.config_path)
-                .wrap_err("config validation failed; service not installed")?;
-            manager.install(ServiceInstallCtx {
-                label: label.clone(),
-                program: program_path().note(concat!(
-                    "Could not install service because path to ",
-                    env!("CARGO_CRATE_NAME"),
-                    " could not be determined."
-                ))?,
-                args: vec![
-                    OsString::from("--config"),
-                    config.config_path.as_os_str().to_owned(),
-                ],
-                contents: None,
-                username: None,
-                working_directory: None,
-                environment: None,
-                autostart: true,
-                disable_restart_on_failure: false,
-            })?;
-            manager.start(ServiceStartCtx { label })?;
-            println!("Installed and started service {}", SERVICE_IDENT);
-        }
-        ServiceCommand::Restart => {
-            Config::validate_file(&config.config_path)
-                .wrap_err("config validation failed; service not restarted")?;
-            let status = manager.status(ServiceStatusCtx {
-                label: label.clone(),
-            })?;
-            match status {
-                ServiceStatus::Running => {
-                    manager.stop(ServiceStopCtx {
-                        label: label.clone(),
-                    })?;
-                }
-                ServiceStatus::NotInstalled => {
-                    bail!("Service {SERVICE_IDENT} not installed; can't restart");
-                }
-                ServiceStatus::Stopped(_) => (),
-            }
-            manager.start(ServiceStartCtx { label })?;
-            println!("Restarted service {}", SERVICE_IDENT);
-        }
-        ServiceCommand::Uninstall => {
-            manager.uninstall(ServiceUninstallCtx { label })?;
-            println!("Uninstalled service {}", SERVICE_IDENT);
-        }
+/// Returns the directory containing pre-rendered unit files, located relative
+/// to the resolved binary path (`../share/ssh-agent-mux/` from the binary).
+///
+/// Uses `current_exe()` which resolves symlinks, giving the real nix store
+/// path. This ensures the unit files always match the binary that ships them.
+fn unit_file_dir() -> Result<PathBuf> {
+    let exe = env::current_exe().wrap_err("could not determine binary path")?;
+    let bin_dir = exe
+        .parent()
+        .ok_or_else(|| eyre!("binary has no parent directory"))?;
+    let pkg_dir = bin_dir
+        .parent()
+        .ok_or_else(|| eyre!("bin directory has no parent"))?;
+    let dir = pkg_dir.join("share").join(env!("CARGO_PKG_NAME"));
+    if !dir.is_dir() {
+        bail!(
+            "unit file directory not found at {}; service management requires the nix-built package",
+            dir.display()
+        );
     }
+    Ok(dir)
+}
 
+fn home_dir() -> Result<PathBuf> {
+    env::var("HOME")
+        .map(PathBuf::from)
+        .map_err(|_| eyre!("HOME is not set"))
+}
+
+// ---------------------------------------------------------------------------
+// macOS (launchd)
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "macos")]
+fn plist_source() -> Result<PathBuf> {
+    Ok(unit_file_dir()?.join(PLIST_FILENAME))
+}
+
+#[cfg(target_os = "macos")]
+fn plist_dest() -> Result<PathBuf> {
+    Ok(home_dir()?
+        .join("Library/LaunchAgents")
+        .join(PLIST_FILENAME))
+}
+
+#[cfg(target_os = "macos")]
+fn run_launchctl(args: &[&str]) -> Result<()> {
+    let output = process::Command::new("launchctl")
+        .args(args)
+        .output()
+        .wrap_err("failed to execute launchctl")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!(
+            "launchctl {} failed (exit {}): {}",
+            args.first().unwrap_or(&""),
+            output.status.code().unwrap_or(-1),
+            stderr.trim()
+        );
+    }
     Ok(())
 }
+
+#[cfg(target_os = "macos")]
+fn service_install(config: &Config) -> Result<()> {
+    if !config.config_path.try_exists()? {
+        write_new_config_file(config)?;
+    }
+    Config::validate_file(&config.config_path)
+        .wrap_err("config validation failed; service not installed")?;
+
+    let source = plist_source()?;
+    let dest = plist_dest()?;
+
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::copy(&source, &dest).wrap_err_with(|| {
+        format!(
+            "failed to copy plist from {} to {}",
+            source.display(),
+            dest.display()
+        )
+    })?;
+
+    // Unload any existing instance (ignore errors — may not be loaded)
+    let _ = run_launchctl(&["remove", SERVICE_LABEL]);
+    run_launchctl(&["load", &dest.to_string_lossy()])?;
+
+    println!("Installed and started service {SERVICE_LABEL}");
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn service_restart(config: &Config) -> Result<()> {
+    Config::validate_file(&config.config_path)
+        .wrap_err("config validation failed; service not restarted")?;
+
+    let _ = run_launchctl(&["stop", SERVICE_LABEL]);
+    run_launchctl(&["start", SERVICE_LABEL])?;
+
+    println!("Restarted service {SERVICE_LABEL}");
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn service_uninstall() -> Result<()> {
+    let _ = run_launchctl(&["remove", SERVICE_LABEL]);
+
+    let dest = plist_dest()?;
+    if dest.try_exists()? {
+        fs::remove_file(&dest)?;
+    }
+
+    println!("Uninstalled service {SERVICE_LABEL}");
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn restart_service_if_running() -> Result<()> {
+    // launchctl stop + start; if the service isn't loaded, stop will fail and
+    // we just skip the restart.
+    if run_launchctl(&["stop", SERVICE_LABEL]).is_ok() {
+        run_launchctl(&["start", SERVICE_LABEL])?;
+        println!("Restarted service {SERVICE_LABEL}");
+    } else {
+        println!("Service not loaded; skipping restart");
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Linux (systemd)
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "linux")]
+fn systemd_unit_source() -> Result<PathBuf> {
+    Ok(unit_file_dir()?.join(SYSTEMD_UNIT_FILENAME))
+}
+
+#[cfg(target_os = "linux")]
+fn systemd_unit_dest() -> Result<PathBuf> {
+    let config_dir = env::var("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| home_dir().expect("HOME is not set").join(".config"));
+    Ok(config_dir.join("systemd/user").join(SYSTEMD_UNIT_FILENAME))
+}
+
+#[cfg(target_os = "linux")]
+fn run_systemctl(args: &[&str]) -> Result<()> {
+    let output = process::Command::new("systemctl")
+        .arg("--user")
+        .args(args)
+        .output()
+        .wrap_err("failed to execute systemctl")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!(
+            "systemctl --user {} failed (exit {}): {}",
+            args.first().unwrap_or(&""),
+            output.status.code().unwrap_or(-1),
+            stderr.trim()
+        );
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn service_install(config: &Config) -> Result<()> {
+    if !config.config_path.try_exists()? {
+        write_new_config_file(config)?;
+    }
+    Config::validate_file(&config.config_path)
+        .wrap_err("config validation failed; service not installed")?;
+
+    let source = systemd_unit_source()?;
+    let dest = systemd_unit_dest()?;
+
+    if let Some(parent) = dest.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::copy(&source, &dest).wrap_err_with(|| {
+        format!(
+            "failed to copy unit from {} to {}",
+            source.display(),
+            dest.display()
+        )
+    })?;
+
+    run_systemctl(&["daemon-reload"])?;
+    run_systemctl(&["enable", "--now", SYSTEMD_UNIT_FILENAME])?;
+
+    println!("Installed and started service {SERVICE_LABEL}");
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn service_restart(config: &Config) -> Result<()> {
+    Config::validate_file(&config.config_path)
+        .wrap_err("config validation failed; service not restarted")?;
+
+    run_systemctl(&["restart", SYSTEMD_UNIT_FILENAME])?;
+
+    println!("Restarted service {SERVICE_LABEL}");
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn service_uninstall() -> Result<()> {
+    let _ = run_systemctl(&["disable", "--now", SYSTEMD_UNIT_FILENAME]);
+    run_systemctl(&["daemon-reload"])?;
+
+    let dest = systemd_unit_dest()?;
+    if dest.try_exists()? {
+        fs::remove_file(&dest)?;
+    }
+
+    println!("Uninstalled service {SERVICE_LABEL}");
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn restart_service_if_running() -> Result<()> {
+    if run_systemctl(&["is-active", "--quiet", SYSTEMD_UNIT_FILENAME]).is_ok() {
+        run_systemctl(&["restart", SYSTEMD_UNIT_FILENAME])?;
+        println!("Restarted service {SERVICE_LABEL}");
+    } else {
+        println!("Service not running; skipping restart");
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Unsupported platforms
+// ---------------------------------------------------------------------------
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn service_install(_config: &Config) -> Result<()> {
+    unsupported_platform_error()
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn service_restart(_config: &Config) -> Result<()> {
+    unsupported_platform_error()
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn service_uninstall() -> Result<()> {
+    unsupported_platform_error()
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn restart_service_if_running() -> Result<()> {
+    println!("Service management not supported on this platform; skipping restart");
+    Ok(())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn unsupported_platform_error() -> Result<()> {
+    let bin = env!("CARGO_PKG_NAME");
+    let exe = env::current_exe()
+        .map(|p| format!("{:?}", p))
+        .unwrap_or_else(|_| bin.to_string());
+    bail!(
+        r##"Automatic management of a user service is unsupported on this platform.
+
+To manually manage starting {bin}, add the following to your shell startup script:
+
+if ! ps -A -u "$(id -u)" | grep -q {bin}; then
+    {exe} > /dev/null &
+fi"##
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Service command dispatch
+// ---------------------------------------------------------------------------
+
+fn handle_service_command(command: &ServiceCommand, config: &Config) -> Result<()> {
+    match command {
+        ServiceCommand::Install => service_install(config),
+        ServiceCommand::Restart => service_restart(config),
+        ServiceCommand::Uninstall => service_uninstall(),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Config file management (unchanged)
+// ---------------------------------------------------------------------------
 
 fn write_new_config_file(config: &Config) -> Result<()> {
     let mut success_msg = format!(
@@ -210,7 +410,6 @@ fn write_new_config_file(config: &Config) -> Result<()> {
 
     println!("{}", success_msg);
 
-    // Create parent directories if they don't exist
     if let Some(parent) = config.config_path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -220,76 +419,12 @@ fn write_new_config_file(config: &Config) -> Result<()> {
     Ok(())
 }
 
-fn handle_set_level_error(command: &ServiceCommand) -> Result<()> {
-    let mut err = eyre!("Automatic management of a user service is unsupported on this platform");
-
-    if matches!(command, ServiceCommand::Install) {
-        let current_exe = program_path().unwrap_or_else(|_| env!("CARGO_PKG_NAME").into());
-        let current_exe_file_name = PathBuf::from(current_exe.file_name().unwrap());
-        let arg0 = current_exe_file_name.display();
-        err = err.suggestion(format!(
-            r##"
-To manually manage starting {arg0}, add the following to your shell startup script:
-
-if ! ps -A -u "$(id -u)" | grep -q {arg0}; then
-    {current_exe:?} > /dev/null &
-fi"##
-        ));
-    }
-
-    Err(err)
-}
-
 fn resolve_editor() -> Result<String> {
     env::var("VISUAL")
         .or_else(|_| env::var("EDITOR"))
         .map_err(|_| {
             eyre!("Set VISUAL or EDITOR environment variable to use `ssh-agent-mux config edit`")
         })
-}
-
-fn restart_service_if_running() -> Result<()> {
-    let manager = match <dyn ServiceManager>::native() {
-        Ok(mut m) => {
-            if let Err(err) = m.set_level(service_manager::ServiceLevel::User) {
-                if err.kind() == io::ErrorKind::Unsupported {
-                    println!("Service management not supported on this platform; skipping restart");
-                    return Ok(());
-                }
-                return Err(err.into());
-            }
-            m
-        }
-        Err(_) => {
-            println!("No service manager available; skipping restart");
-            return Ok(());
-        }
-    };
-
-    let label: service_manager::ServiceLabel =
-        SERVICE_IDENT.parse().expect("SERVICE_IDENT is wrong");
-
-    let status = manager.status(ServiceStatusCtx {
-        label: label.clone(),
-    })?;
-
-    match status {
-        ServiceStatus::Running => {
-            manager.stop(ServiceStopCtx {
-                label: label.clone(),
-            })?;
-            manager.start(ServiceStartCtx { label })?;
-            println!("Restarted service {}", SERVICE_IDENT);
-        }
-        ServiceStatus::Stopped(_) => {
-            println!("Service is stopped; skipping restart");
-        }
-        ServiceStatus::NotInstalled => {
-            println!("Service not installed; skipping restart");
-        }
-    }
-
-    Ok(())
 }
 
 fn handle_edit_config(config: &Config) -> Result<()> {
@@ -322,7 +457,6 @@ fn handle_edit_config(config: &Config) -> Result<()> {
         let code = status
             .code()
             .map_or("unknown".to_string(), |c| c.to_string());
-        // Clean up temp file on editor failure
         let _ = fs::remove_file(&temp_path);
         bail!("Editor exited with status {}", code);
     }
@@ -330,7 +464,6 @@ fn handle_edit_config(config: &Config) -> Result<()> {
     let edited_contents = fs::read(&temp_path)?;
 
     if original_contents == edited_contents {
-        // temp_path is dropped here, which deletes the file
         println!("No changes made");
         return Ok(());
     }
@@ -345,7 +478,6 @@ fn handle_edit_config(config: &Config) -> Result<()> {
         ));
     }
 
-    // Write through any symlinks by opening the config path directly
     fs::OpenOptions::new()
         .write(true)
         .truncate(true)
