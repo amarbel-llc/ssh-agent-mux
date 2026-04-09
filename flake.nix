@@ -44,14 +44,14 @@
       {
         packages.default = pkgs.rustPlatform.buildRustPackage {
           pname = "ssh-agent-mux";
-          version = "0.1.6";
+          version = "0.2.0";
 
           src = ./.;
 
           cargoLock = {
             lockFile = ./Cargo.lock;
             outputHashes = {
-              "ssh-agent-lib-0.4.0" = "sha256-R6GIPJkgAKuOUSRPIVCRM05oIzOMdqvq6yHdKd3Vyrs=";
+              "ssh-agent-lib-0.5.2" = "sha256-jzbHjsYIF138FsGZioDEnCn8PpU5H7yW5FD4cU14wXw=";
             };
           };
 
