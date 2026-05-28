@@ -9,10 +9,15 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    bob.url = "github:amarbel-llc/bob";
-    bob.inputs.nixpkgs.follows = "nixpkgs";
-    bob.inputs.nixpkgs-master.follows = "nixpkgs-master";
-    bob.inputs.utils.follows = "utils";
+    # batman test orchestrator + bats helper libs (bats-support,
+    # bats-assert, bats-assert-additions, bats-island). Brings its own
+    # amarbel-llc/nixpkgs fork on purpose: do NOT make it follow this
+    # flake's upstream nixpkgs, or the fork's auto-applied overlay
+    # (fence, buildZxScriptFromFile, …) goes missing.
+    bats.url = "github:amarbel-llc/bats";
+    # tap-dancer (TAP wrapper used by `just test-rust`). Same rationale —
+    # leave its nixpkgs on the fork.
+    tap.url = "github:amarbel-llc/tap";
   };
 
   outputs =
@@ -22,7 +27,8 @@
       nixpkgs-master,
       utils,
       rust-overlay,
-      bob,
+      bats,
+      tap,
     }:
     utils.lib.eachDefaultSystem (
       system:
@@ -116,8 +122,8 @@
             pkgs.openssl
             pkgs.pkg-config
             pkgs.just
-            bob.packages.${system}.batman
-            bob.packages.${system}.tap-dancer
+            bats.packages.${system}.batman
+            tap.packages.${system}.tap-dancer
           ];
         };
       }
