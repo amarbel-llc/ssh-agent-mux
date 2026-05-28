@@ -1,0 +1,11 @@
+# spinclass(1) repo-level sweatfile.
+# See spinclass-sweatfile(5) for the full schema.
+
+[hooks]
+# `just` runs the default recipe (justfile:2 — `default: build test`):
+# nix build + cargo build + cargo test + bats integration tests. A
+# passing default means the repo is in a good state, so it doubles as
+# the pre-merge gate. Overrides the lighter `just build-nix` inherited
+# from ~/eng/sweatfile; the [[pre-merge-skills]] declared there
+# (simplify, review, eng:loose-ends) still apply via inheritance.
+pre-merge = "just"
