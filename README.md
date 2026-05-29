@@ -54,6 +54,49 @@ Download binaries for various operating systems and architectures from the [rele
    $ mkdir -p ~/bin && cp target/release/ssh-agent-mux ~/bin/
    ```
 
+### Home Manager (Nix)
+
+This flake exposes a [Home Manager](https://nix-community.github.io/home-manager/)
+module that renders the config file and runs the mux as a user service (systemd
+`--user` on Linux, a launchd agent on macOS).
+
+Add the flake as an input and import the module:
+
+```nix
+{
+  inputs.ssh-agent-mux.url = "github:overhacked/ssh-agent-mux";
+
+  # In your Home Manager configuration:
+  imports = [ inputs.ssh-agent-mux.homeManagerModules.default ];
+
+  services.ssh-agent-mux = {
+    enable = true;
+    # Export SSH_AUTH_SOCK so SSH clients use the mux by default.
+    enableSshAuthSock = true;
+
+    agents = [
+      {
+        name = "1password";
+        socketPath = "~/.1password/agent.sock";
+      }
+      {
+        name = "yubikey";
+        socketPath = "~/.ssh/yubikey-agent.sock";
+      }
+    ];
+
+    # Forward `ssh-add` requests to a specific agent (optional).
+    addNewKeysTo = "1password";
+  };
+}
+```
+
+Available options: `enable`, `package`, `listenPath`, `agents` (`name`,
+`socketPath`, `enabled`), `addNewKeysTo`, `logLevel`, `logFile`, `agentTimeout`,
+`installService`, `enableSshAuthSock`, and a freeform `settings` escape hatch.
+Because the module manages the service declaratively, the imperative
+`ssh-agent-mux service install` / `config install` subcommands are not needed.
+
 ## Usage
 
 ### Linux (systemd)

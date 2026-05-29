@@ -37,7 +37,15 @@
       tap,
       treefmt-nix,
     }:
-    utils.lib.eachDefaultSystem (
+    # System-agnostic outputs (Home Manager module) merged with the per-system
+    # outputs produced by eachDefaultSystem below.
+    {
+      homeManagerModules = rec {
+        ssh-agent-mux = import ./nix/home-manager.nix self;
+        default = ssh-agent-mux;
+      };
+    }
+    // utils.lib.eachDefaultSystem (
       system:
       let
         pkgs = import nixpkgs {
@@ -81,6 +89,44 @@
       {
         formatter = treefmtEval.config.build.wrapper;
         checks.formatting = treefmtEval.config.build.check self;
+
+        # Renders the Home Manager module's config mapping
+        # (nix/config-settings.nix) to TOML and validates it with the binary, so
+        # a drift between the module's kebab-case keys and the Rust serde schema
+        # (`deny_unknown_fields`) fails the build. Cheaper than a full
+        # home-manager eval; see ssh-agent-mux#13 for the faithful version.
+        checks.config-render =
+          let
+            configSettings = import ./nix/config-settings.nix { inherit (pkgs) lib; };
+            renderedConfig = (pkgs.formats.toml { }).generate "ssh-agent-mux.toml" (configSettings {
+              listenPath = "/tmp/ssh-agent-mux/agent.sock";
+              logLevel = "info";
+              logFile = null;
+              agentTimeout = 5;
+              addNewKeysTo = "1password";
+              agents = [
+                {
+                  name = "1password";
+                  socketPath = "~/.1password/agent.sock";
+                  enabled = true;
+                }
+                {
+                  name = "yubikey";
+                  socketPath = "~/.ssh/yubikey-agent.sock";
+                  enabled = false;
+                }
+              ];
+              # Exercise the freeform escape hatch and its precedence over the
+              # structured options above.
+              settings.log-level = "debug";
+            });
+          in
+          pkgs.runCommand "ssh-agent-mux-config-render-check" { } ''
+            export HOME="$TMPDIR"
+            ${self.packages.${system}.default}/bin/ssh-agent-mux \
+              --config ${renderedConfig} config validate
+            touch "$out"
+          '';
 
         packages.default = pkgs.rustPlatform.buildRustPackage {
           pname = "ssh-agent-mux";
