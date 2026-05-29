@@ -5,79 +5,60 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.6] - 2025-04-28
+## [0.1.0] - 2026-05-29
 
 ### Added
+- Add bats binary to the devShell
+- Add query-extensions diagnostic + confirm-query-aggregation recipe
+- Add repo-level sweatfile gating pre-merge on full `just`
+- Add CLAUDE.md with bats sandbox unix socket gotcha
+- Add outputHash for git-sourced ssh-agent-lib dependency
+- Add dev and dev-open recipes for isolated local testing
+- Add feature design record for forwarding constrained add-identity requests
+- Add tap-dancer for cargo test output and to devShell
+- Add multi-agent and add-new-keys-to config validation tests
+- Add BATS integration test infrastructure
+- Add edit-config design docs and TODO for editor splitting
+- Add --edit-config flag to ServiceArgs
 - Add CI workflow
 - Add better error reporting to integration tests
 - Add --log-file option
-
-### Changed
-- Bump toml from 0.8.20 to 0.8.21 by @dependabot[bot]
-- Cargo fmt
-- Clean up quoting in homebrew formula generation
-
-### Fixed
-- Temporarily disable cross qemu tests
-- Update MSRV to 1.81.0
-
-## New Contributors
-* @dependabot[bot] made their first contribution
-## [0.1.5] - 2025-04-27
-
-Release v0.1.5
-
-Release v0.1.5
-- Switch homebrew-releaser CI back to upstream
-- Switch fork of homebrew-releaser to main branch
-- Update Homebrew tap repository name
-- Fix line length in release workflow
-* @overhacked made their first contribution
-- Switch homebrew-releaser CI back to upstream
-- Switch fork of homebrew-releaser to main branch
-- Update Homebrew tap repository name
-- Fix line length in release workflow
-* @overhacked made their first contribution
-
-### Changed
-- Switch homebrew-releaser CI back to upstream
-- Switch fork of homebrew-releaser to main branch
-- Update Homebrew tap repository name
-
-### Fixed
-- Fix line length in release workflow
-
-## [0.1.4] - 2025-04-24
-
-Release v0.1.4
-
-Release v0.1.4
-Release v0.1.4
-- Fix homebrew-releaser workflow
-- Test homebrew-releaser local changes
-- Test homebrew-releaser local changes
-
-### Changed
-- Test homebrew-releaser local changes
-
-### Fixed
-- Fix homebrew-releaser workflow
-
-## [0.1.3] - 2025-04-23
-
-Release v0.1.3
-
-- Fix homebrew-tap workflow step
-
-### Added
 - Add homebrew to release CI
 - Add configuration reloading on SIGHUP
 - Add some trace logging
 - Add integration test
 - Add --install-config option
 - Add dependabot configuration
+- Add color-eyre and improve some error reporting
+- Add release workflow and shell script
+- Add tag message to cliff.toml
+- Add documentation to public functions and structs
+- Add git-cliff configuration
 
 ### Changed
+- Format tree with treefmt
+- Adopt eng justfile, treefmt & release conventions
+- Bump ssh-agent-lib to 0.6.0 (master), adapt to credential rename
+- Consume batman/tap-dancer from bats+tap, drop bob
+- Bump version to 0.2.0
+- Apply formatting (cargo fmt, yaml indent, shfmt)
+- Switch tap-dancer from purse-first to bob flake input
+- Forward constrained add-identity requests to upstream agent
+- Replace utility flags with grouped subcommands
+- Implement --edit-config command
+- Move tempfile to regular dependency for edit-config
+- Update README.md config example
+- Bump tempfile from 3.19.1 to 3.20.0 by @dependabot[bot]
+- Bump tokio from 1.44.2 to 1.45.0 by @dependabot[bot]
+- Bump duct from 0.13.7 to 1.0.0 by @dependabot[bot]
+- Bump toml from 0.8.21 to 0.8.22 by @dependabot[bot]
+- Bump toml from 0.8.20 to 0.8.21 by @dependabot[bot]
+- Cargo fmt
+- Clean up quoting in homebrew formula generation
+- Switch homebrew-releaser CI back to upstream
+- Switch fork of homebrew-releaser to main branch
+- Update Homebrew tap repository name
+- Test homebrew-releaser local changes
 - Move test harness into separate module
 - Cargo fmt
 - Automatic configuration file generation
@@ -86,41 +67,49 @@ Release v0.1.3
 - Suggest how to configure on service-unsupported platforms
 - Move main and modules to a separate bin directory
 - Extract logging module
+- Service management (as described in README)
+- Cargo fmt
+- Simplify parsing of tilde in upstream agent paths
+- Tilde (HOME) expansion in configuration
+- Update dependencies
+- Prepare README.md, LICENSEs, etc.
+- Refactor session-bind error handling
+- Refactor MuxAgentSession
+- Improve logging configuration
+- Refactor session-bind@openssh.com extension support
+- Update to ssh-agent-lib 0.5.1
+- Cleared known keys after every upstream agent
+- Non-working session-bind extension handling
+- Implement basic sign functionality
 
 ### Fixed
+- Gate release on master, the actual default branch
+- Drop obsolete --allow-unix-sockets flag
+- Pin flat OpenSSH query-response decode (ssh-agent-mux#10)
+- Render launchd/systemd unit files at nix build time instead of runtime
+- Update ssh-agent-lib to v0.5.2 (main branch) for query wire format fix
+- Use argv[0] for service install to preserve symlink paths
+- Aggregate upstream agent extensions in query response
+- Forward unknown SSH agent extensions to upstream agents
+- Allow unix sockets in bats sandbox for tokio signal handling
+- Upgrade Rust to edition 2024, replace purse-first devenv with rust-overlay
+- Filter out certificate identities during refresh_identities
+- Log full error variant chain instead of lossy Display output
+- Temporarily disable cross qemu tests
+- Update MSRV to 1.81.0
+- Fix line length in release workflow
+- Fix homebrew-releaser workflow
 - Fix homebrew-tap workflow step
+- Correct error handling for session-bind@openssh.com extension
+- Correct extension query response; handle unsupported extension
+- Refactor known_keys lock to hold lock across signing request
+- Make logging filtering work better with flexi-logger crate
 
-## [0.1.1] - 2025-04-19
+### Removed
+- Remove certificate identity filtering workaround
 
-Release v0.1.1
-
-- Prepare for v0.1.1
-- Service management (as described in README)
-- Add color-eyre and improve some error reporting
-
-### Added
-- Add color-eyre and improve some error reporting
-
-### Changed
-- Service management (as described in README)
-
-## [0.1.0] - 2025-04-19
-
-`ssh-agent-mux` combines multiple agents' keys into a single agent, allowing
-you to configure an SSH client just once. Provide all "upstream" SSH agents'
-`SSH_AUTH_SOCK` paths in the `ssh-agent-mux` configuration and run
-`ssh-agent-mux` via your login scripts or OS's user service manager. Point your
-SSH configuration at `ssh-agent-mux`'s socket, and it will offer all available
-public keys from upstream agents as available for authentication.
-
-### Added
-- Add release workflow and shell script
-
-[0.1.6]: https://github.com/overhacked/ssh-agent-mux/compare/v0.1.5..v0.1.6
-[0.1.5]: https://github.com/overhacked/ssh-agent-mux/compare/v0.1.4..v0.1.5
-[0.1.4]: https://github.com/overhacked/ssh-agent-mux/compare/v0.1.3..v0.1.4
-[0.1.3]: https://github.com/overhacked/ssh-agent-mux/compare/v0.1.1..v0.1.3
-[0.1.1]: https://github.com/overhacked/ssh-agent-mux/compare/v0.1.0..v0.1.1
-[0.1.0]: https://github.com/overhacked/ssh-agent-mux/compare/v0.0.0..v0.1.0
+## New Contributors
+* @overhacked made their first contribution
+* @dependabot[bot] made their first contribution
 
 <!-- generated by git-cliff -->
