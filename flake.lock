@@ -384,6 +384,7 @@
         "nixpkgs-master": "nixpkgs-master_3",
         "rust-overlay": "rust-overlay",
         "tap": "tap",
+        "treefmt-nix": "treefmt-nix_6",
         "utils": "utils_3"
       }
     },
@@ -634,6 +635,26 @@
       "inputs": {
         "nixpkgs": [
           "tap",
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1775636079,
+        "narHash": "sha256-pc20NRoMdiar8oPQceQT47UUZMBTiMdUuWrYu2obUP0=",
+        "owner": "numtide",
+        "repo": "treefmt-nix",
+        "rev": "790751ff7fd3801feeaf96d7dc416a8d581265ba",
+        "type": "github"
+      },
+      "original": {
+        "owner": "numtide",
+        "repo": "treefmt-nix",
+        "type": "github"
+      }
+    },
+    "treefmt-nix_6": {
+      "inputs": {
+        "nixpkgs": [
           "nixpkgs"
         ]
       },

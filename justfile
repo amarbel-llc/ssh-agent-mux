@@ -1,33 +1,60 @@
-
-default: build test
-
-build: build-nix build-rust
-
-build-nix:
-  nix build
-
-build-rust:
-  nix develop --command cargo build
+default: lint build test
 
 dir_build := "target"
 
-test: test-rust test-bats
+# Read-only formatting gate (treefmt via the `checks.formatting` derivation).
+[group('pre-build')]
+lint-fmt:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  # Builds checks.formatting, which runs treefmt against a /nix/store snapshot
+  # and fails if anything would change. Does NOT touch the worktree --- the
+  # modifying counterpart is `codemod-fmt-treefmt`.
+  system=$(nix eval --raw --impure --expr 'builtins.currentSystem')
+  nix build ".#checks.${system}.formatting" --no-link --print-build-logs
 
+lint: lint-fmt
+
+[group('build')]
+build-nix:
+  nix build
+
+[group('build')]
+build-rust:
+  nix develop --command cargo build
+
+build: build-nix build-rust
+
+[group('post-build')]
 test-rust:
   TMPDIR=/tmp nix develop --command tap-dancer cargo-test -skip-empty
 
+[group('post-build')]
 test-bats: build-rust
   PATH="{{justfile_directory()}}/{{dir_build}}/debug:$PATH" just zz-tests_bats/test
 
-reinstall-local: build-nix
+test: test-rust test-bats
+
+# Format the whole tree in place with treefmt (`nix fmt`); gate is `lint-fmt`.
+[group('codemod')]
+codemod-fmt-treefmt:
+  nix fmt
+
+codemod-fmt: codemod-fmt-treefmt
+
+# Reinstall the system service from a fresh nix build.
+[group('operational')]
+install-local: build-nix
   ./result/bin/ssh-agent-mux service uninstall
   ./result/bin/ssh-agent-mux service install
 
-# Build from source, start isolated dev daemon, drop into shell with SSH_AUTH_SOCK
-# pointing to the dev instance. Real upstream agents are still used.
-dev: build-rust
+# Run an isolated dev daemon (copy of your real config) on a temp socket, then open a shell.
+[group('operational')]
+run-dev: build-rust
   #!/usr/bin/env bash
   set -euo pipefail
+  # Real upstream agents are still used; only the listen socket and logs are
+  # isolated to a temp dir.
   root="$(cd "{{justfile_directory()}}" && pwd)"
   build_dir="$root/{{dir_build}}/debug"
   binary="$build_dir/ssh-agent-mux"
@@ -90,10 +117,9 @@ dev: build-rust
   # Drop into shell with SSH_AUTH_SOCK pointing to dev instance
   SSH_AUTH_SOCK="$socket" PATH="$build_dir:$PATH" "$SHELL"
 
-# Build from source, start dev daemon using production config directly,
-# with only socket and log paths isolated. Useful for testing against the
-# exact config the system service uses.
-dev-open: build-rust
+# Run a dev daemon using your production config, isolating only socket + log paths.
+[group('operational')]
+run-dev-open: build-rust
   #!/usr/bin/env bash
   set -euo pipefail
   root="$(cd "{{justfile_directory()}}" && pwd)"
@@ -140,15 +166,68 @@ dev-open: build-rust
   # Drop into shell with SSH_AUTH_SOCK pointing to dev instance
   SSH_AUTH_SOCK="$socket" PATH="$build_dir:$PATH" "$SHELL"
 
-# debug: stand up a throwaway mux (current build) against the real upstream
-# agents from your config on a temp socket, then print each upstream's and
-# the mux's advertised `query` extensions via the query-extensions example.
-# Non-disruptive: uses a temp socket and never touches the installed
-# service. Live-confirm for query aggregation (ssh-agent-mux#10).
-[group: 'debug']
-confirm-query-aggregation: build-rust
+# Bump the version in version.env (canonical) and Cargo.toml's [package] version.
+[group('maint')]
+bump-version new_version:
+  # Pure mutation: staging/committing is `release`'s job. The Cargo.toml edit
+  # is scoped to the [package] table so it never touches the [dependencies.*]
+  # version lines, which also sit at column 0.
+  sed -E -i 's/^(export SSH_AGENT_MUX_VERSION)=.*/\1={{new_version}}/' version.env
+  sed -E -i '/^\[package\]/,/^\[/ s/^version = "[^"]*"/version = "{{new_version}}"/' Cargo.toml
+
+# Create, push, and verify a signed `v<sem>` tag read from version.env.
+[group('maint')]
+tag message:
   #!/usr/bin/env bash
   set -euo pipefail
+  . version.env
+  tag="v${SSH_AGENT_MUX_VERSION:?missing SSH_AGENT_MUX_VERSION in version.env}"
+  git tag -s -m "{{message}}" "$tag"
+  gum log --level info "Created tag: $tag"
+  git push origin "$tag"
+  gum log --level info "Pushed $tag"
+  git tag -v "$tag"
+
+# Full release: changelog, version bump, commit, signed tag, and GitHub release.
+[group('maint')]
+release new_version:
+  #!/usr/bin/env bash
+  set -euo pipefail
+
+  # Release only from the default branch.
+  branch=$(git rev-parse --abbrev-ref HEAD)
+  if [[ "$branch" != "main" ]]; then
+    gum log --level error "release only allowed from main (on '$branch')"
+    exit 1
+  fi
+
+  tag="v{{new_version}}"
+
+  # Generate the changelog BEFORE bump-version. git-cliff skips the
+  # chore(release) commit, so the bump never lands in the notes.
+  git cliff --tag "$tag" --output CHANGELOG.md
+  notes=$(git cliff --tag "$tag" --unreleased --strip all)
+
+  just bump-version "{{new_version}}"
+  # Rust-specific: cargo records the crate version in Cargo.lock too, so
+  # rebuild to keep the lock in step with the bumped Cargo.toml.
+  nix develop --command cargo build
+  git add version.env Cargo.toml Cargo.lock CHANGELOG.md
+  git commit -m "chore(release): $tag"
+
+  just tag "$notes"
+
+  # gh release create is the publication step; CI on tag push is verify-only.
+  gh release create "$tag" --title "$tag" --notes "$notes"
+
+# Stand up a throwaway mux vs your real upstreams; dump aggregated query extensions (ssh-agent-mux#10).
+[group('debug')]
+debug-query-aggregation: build-rust
+  #!/usr/bin/env bash
+  set -euo pipefail
+  # Non-disruptive: uses a temp socket and never touches the installed service.
+  # Prints each upstream's and the mux's advertised `query` extensions via the
+  # query-extensions example.
   root="$(cd "{{justfile_directory()}}" && pwd)"
   build_dir="$root/{{dir_build}}/debug"
   binary="$build_dir/ssh-agent-mux"
