@@ -162,6 +162,9 @@
             pkgs.git-cliff
             pkgs.gh
             bats.packages.${system}.batman
+            # The `bats` binary itself --- the test-bats recipe invokes `bats`
+            # directly, and the batman package alone does not put it on PATH.
+            bats.packages.${system}.bats
             tap.packages.${system}.tap-dancer
           ];
         };
