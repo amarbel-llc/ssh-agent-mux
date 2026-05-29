@@ -17,22 +17,19 @@ just test-bats      # bats integration tests only
 
 ## Testing
 
-### Bats sandbox requires `--allow-unix-sockets`
+### Bats sandbox (fence-based)
 
-Batman's `bats` wrapper runs tests inside sandcastle, which blocks
-`socket(AF_UNIX, ...)` via seccomp by default. Because tokio registers Unix
-signal handlers at runtime startup (before any user code), this causes every
-invocation to panic with `PermissionDenied` --- even `--help` and `--version`.
+Tests run through the `bats` wrapper from the `amarbel-llc/bats` flake input,
+which sandboxes each test command with `fence` (not seccomp/sandcastle). The
+fence config denies reads of credential dirs (`~/.ssh`, `~/.gnupg`, …) and all
+network egress, but does **not** block `socket(AF_UNIX, ...)`, so the mux's
+Unix-socket I/O and tokio's signal handlers work without any extra flag.
 
-The `zz-tests_bats/justfile` passes `--allow-unix-sockets` to `bats` to permit
-this. If you see panics like:
-
-```
-failed to create UnixStream: Os { code: 1, kind: PermissionDenied, message: "Operation not permitted" }
-```
-
-The fix is `--allow-unix-sockets` on the `bats` command, **not** changing the
-Rust code or Claude Code sandbox settings.
+An older sandcastle-based wrapper required `--allow-unix-sockets`; that flag is
+**not** accepted by the current fence-based wrapper (it errors `Bad command line option`) and has been removed from `zz-tests_bats/justfile`. Wrapper flags
+worth knowing: `--no-sandbox` (bypass fence), `--allow-local-binding`,
+`--no-tempdir-cleanup`. Run `bats version` (positional) for wrapper/component
+versions.
 
 ## Architecture
 
