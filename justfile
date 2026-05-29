@@ -139,3 +139,60 @@ dev-open: build-rust
 
   # Drop into shell with SSH_AUTH_SOCK pointing to dev instance
   SSH_AUTH_SOCK="$socket" PATH="$build_dir:$PATH" "$SHELL"
+
+# debug: stand up a throwaway mux (current build) against the real upstream
+# agents from your config on a temp socket, then print each upstream's and
+# the mux's advertised `query` extensions via the query-extensions example.
+# Non-disruptive: uses a temp socket and never touches the installed
+# service. Live-confirm for query aggregation (ssh-agent-mux#10).
+[group: 'debug']
+confirm-query-aggregation: build-rust
+  #!/usr/bin/env bash
+  set -euo pipefail
+  root="$(cd "{{justfile_directory()}}" && pwd)"
+  build_dir="$root/{{dir_build}}/debug"
+  binary="$build_dir/ssh-agent-mux"
+
+  nix develop --command cargo build --quiet --example query-extensions
+  probe="$build_dir/examples/query-extensions"
+
+  src_config="${XDG_CONFIG_HOME:-$HOME/.config}/ssh-agent-mux/ssh-agent-mux.toml"
+  if [[ ! -f "$src_config" ]]; then
+    echo "no config found at $src_config" >&2
+    exit 1
+  fi
+
+  dir=$(mktemp -d /tmp/ssh-agent-mux-confirm-XXXXXX)
+  trap 'kill "${daemon_pid:-}" 2>/dev/null; wait "${daemon_pid:-}" 2>/dev/null; rm -rf "$dir"' EXIT
+
+  socket="$dir/agent.sock"
+  config_dir="$dir/config/ssh-agent-mux"
+  mkdir -p "$config_dir"
+
+  # Reuse the real config so we talk to the real upstream agents, overriding
+  # only the listen path to a throwaway socket.
+  sed -e "s|^listen-path *=.*|listen-path = \"$socket\"|" \
+    "$src_config" > "$config_dir/ssh-agent-mux.toml"
+
+  XDG_CONFIG_HOME="$dir/config" "$binary" &
+  daemon_pid=$!
+
+  deadline=$((SECONDS + 5))
+  while [[ ! -S "$socket" ]] && [[ $SECONDS -lt $deadline ]]; do sleep 0.05; done
+  if [[ ! -S "$socket" ]]; then
+    echo "throwaway mux failed to start within 5s" >&2
+    exit 1
+  fi
+
+  echo "=== upstream agents (from $src_config) ==="
+  grep -E '^socket-path' "$src_config" \
+    | sed -E 's/^socket-path *= *"(.*)"/\1/' \
+    | while read -r up; do
+        up_expanded="${up/#\$HOME/$HOME}"
+        up_expanded="${up_expanded/#\~/$HOME}"
+        echo "--- $up_expanded ---"
+        "$probe" "$up_expanded" || echo "(probe failed)"
+      done
+
+  echo "=== mux aggregated (listen=$socket) ==="
+  "$probe" "$socket"
