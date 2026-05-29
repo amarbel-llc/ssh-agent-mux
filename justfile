@@ -196,8 +196,8 @@ release new_version:
 
   # Release only from the default branch.
   branch=$(git rev-parse --abbrev-ref HEAD)
-  if [[ "$branch" != "main" ]]; then
-    gum log --level error "release only allowed from main (on '$branch')"
+  if [[ "$branch" != "master" ]]; then
+    gum log --level error "release only allowed from master (on '$branch')"
     exit 1
   fi
 
