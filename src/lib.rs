@@ -37,7 +37,7 @@ impl Session for MuxAgent {
     }
 
     async fn sign(&mut self, request: SignRequest) -> Result<Signature, AgentError> {
-        let pubkey = request.pubkey.key_data();
+        let pubkey = request.credential.key_data();
         let fingerprint = pubkey.fingerprint(Default::default());
         log::trace!("incoming: sign({})", &fingerprint);
 
@@ -520,7 +520,7 @@ impl MuxAgent {
                     }
                 };
             for id in &agent_identities {
-                known_keys.insert(id.pubkey.key_data().clone(), sock_path.clone());
+                known_keys.insert(id.credential.key_data().clone(), sock_path.clone());
             }
             log::trace!(
                 "Got {} identities from {}",

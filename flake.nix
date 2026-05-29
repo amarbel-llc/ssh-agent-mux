@@ -57,7 +57,7 @@
           cargoLock = {
             lockFile = ./Cargo.lock;
             outputHashes = {
-              "ssh-agent-lib-0.5.2" = "sha256-jzbHjsYIF138FsGZioDEnCn8PpU5H7yW5FD4cU14wXw=";
+              "ssh-agent-lib-0.6.0" = "sha256-wRVRMHvON7yzsswn8k069rbqt2+364Pda+jOcYlB5Pw=";
             };
           };
 
