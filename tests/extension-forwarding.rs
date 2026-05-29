@@ -346,3 +346,43 @@ async fn mux_query_response_aggregates_multiple_upstreams() {
         "duplicate extensions should be deduplicated"
     );
 }
+
+/// Regression for ssh-agent-mux#10: a code-29 query response from an
+/// OpenSSH-style upstream (e.g. piggy-agent) encodes the extension list as
+/// FLAT cstrings with no outer `Vec<String>` length prefix, matching
+/// OpenSSH's `process_ext_query`. Decoding those exact on-wire bytes must
+/// recover every advertised extension. Before the QueryResponse
+/// wire-format fix the lib decoded a `Vec<String>` (leading u32 count) and
+/// mis-parsed this, dropping `ecdh@joyent.com`. The bytes here are built by
+/// hand (not via the lib's own `Encode`) so the test pins the real wire
+/// format rather than a self-consistent round-trip.
+#[test]
+fn query_response_decodes_flat_openssh_cstrings() {
+    fn push_cstring(buf: &mut Vec<u8>, s: &str) {
+        buf.extend_from_slice(&(s.len() as u32).to_be_bytes());
+        buf.extend_from_slice(s.as_bytes());
+    }
+
+    let mut body = Vec::new();
+    push_cstring(&mut body, "session-bind@openssh.com");
+    push_cstring(&mut body, "ecdh@joyent.com");
+    push_cstring(&mut body, "ecdh-rebox@joyent.com");
+
+    let ext = Extension {
+        name: "query".to_string(),
+        details: Unparsed::from(body),
+    };
+    let query_response: QueryResponse = ext
+        .parse_message()
+        .expect("flat cstrings query body should decode")
+        .expect("extension name should match QueryResponse");
+
+    assert_eq!(
+        query_response.extensions,
+        vec![
+            "session-bind@openssh.com".to_string(),
+            "ecdh@joyent.com".to_string(),
+            "ecdh-rebox@joyent.com".to_string(),
+        ],
+    );
+}
