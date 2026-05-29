@@ -37,7 +37,15 @@
       tap,
       treefmt-nix,
     }:
-    utils.lib.eachDefaultSystem (
+    # System-agnostic outputs (Home Manager module) merged with the per-system
+    # outputs produced by eachDefaultSystem below.
+    {
+      homeManagerModules = rec {
+        ssh-agent-mux = import ./nix/home-manager.nix self;
+        default = ssh-agent-mux;
+      };
+    }
+    // utils.lib.eachDefaultSystem (
       system:
       let
         pkgs = import nixpkgs {
