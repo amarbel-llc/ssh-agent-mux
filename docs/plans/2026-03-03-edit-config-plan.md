@@ -15,11 +15,12 @@ for creating temp files in the target directory.
 **Tech Stack:** Rust, clap (via clap-serde-derive), tempfile, std::process::Command,
 std::fs (canonicalize, rename, read)
 
----
+______________________________________________________________________
 
 ### Task 1: Move `tempfile` from dev-dependencies to dependencies
 
 **Files:**
+
 - Modify: `Cargo.toml:42-44`
 
 **Step 1: Move the dependency**
@@ -46,11 +47,12 @@ Expected: success
 feat: move tempfile to regular dependency for edit-config
 ```
 
----
+______________________________________________________________________
 
 ### Task 2: Add `edit_config` flag to `ServiceArgs`
 
 **Files:**
+
 - Modify: `src/bin/ssh-agent-mux/service.rs:17-50`
 
 **Step 1: Add the flag**
@@ -89,11 +91,12 @@ Expected: success
 feat: add --edit-config flag to ServiceArgs
 ```
 
----
+______________________________________________________________________
 
 ### Task 3: Implement `handle_edit_config()`
 
 **Files:**
+
 - Modify: `src/bin/ssh-agent-mux/service.rs`
 
 **Step 1: Add imports**
@@ -269,11 +272,12 @@ Expected: success
 feat: implement --edit-config command
 ```
 
----
+______________________________________________________________________
 
 ### Task 4: Add unit tests for `resolve_editor()`
 
 **Files:**
+
 - Modify: `src/bin/ssh-agent-mux/service.rs` (add `#[cfg(test)]` module)
 
 **Step 1: Write the tests**
@@ -334,7 +338,7 @@ without synchronization, so this matches the project convention.
 test: add unit tests for resolve_editor
 ```
 
----
+______________________________________________________________________
 
 ### Task 5: Manual verification
 

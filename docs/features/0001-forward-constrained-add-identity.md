@@ -1,8 +1,6 @@
----
-status: experimental
-date: 2026-03-05
-promotion-criteria: step ssh proxycommand succeeds through ssh-agent-mux without "error adding key to agent"
----
+______________________________________________________________________
+
+## status: experimental date: 2026-03-05 promotion-criteria: step ssh proxycommand succeeds through ssh-agent-mux without "error adding key to agent"
 
 # Forward constrained add-identity requests
 

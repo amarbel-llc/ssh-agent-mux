@@ -6,9 +6,9 @@ use std::{
 };
 
 use clap_serde_derive::{
+    ClapSerde,
     clap::{self, Parser, ValueEnum},
     serde::{self, Deserialize, Serialize},
-    ClapSerde,
 };
 use color_eyre::eyre::Result as EyreResult;
 use expand_tilde::ExpandTilde;

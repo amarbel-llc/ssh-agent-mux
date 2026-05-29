@@ -21,8 +21,8 @@ async fn main() {
     let stream = tokio::net::UnixStream::connect(&sock)
         .await
         .unwrap_or_else(|e| panic!("connect {sock}: {e}"));
-    let mut agent = client::connect(stream.into_std().unwrap().into())
-        .expect("construct agent client");
+    let mut agent =
+        client::connect(stream.into_std().unwrap().into()).expect("construct agent client");
 
     let response = agent
         .extension(Extension {

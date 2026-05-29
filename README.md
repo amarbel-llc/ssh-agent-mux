@@ -6,13 +6,13 @@ Numerous types of SSH agents exist, such as the [1Password SSH agent](https://de
 
 ## Features
 
-* Simple TOML configuration syntax
-* [systemd](https://systemd.io/) and [launchd](https://en.wikipedia.org/wiki/Launchd) user service manager integration
-* [`session-bind@openssh.com` extension](https://github.com/openssh/openssh-portable/blob/46e52fdae08b89264a0b23f94391c2bf637def34/PROTOCOL.agent) pass-through support for agents that support key usage constraints
+- Simple TOML configuration syntax
+- [systemd](https://systemd.io/) and [launchd](https://en.wikipedia.org/wiki/Launchd) user service manager integration
+- [`session-bind@openssh.com` extension](https://github.com/openssh/openssh-portable/blob/46e52fdae08b89264a0b23f94391c2bf637def34/PROTOCOL.agent) pass-through support for agents that support key usage constraints
 
 ## Roadmap
 
-* Background daemon support for running directly from the command line, like OpenSSH `ssh-agent`
+- Background daemon support for running directly from the command line, like OpenSSH `ssh-agent`
 
 Go ahead and [submit an issue](https://github.com/overhacked/ssh-agent-mux/issues/new) if there's something that would make `ssh-agent-mux` more useful to you or if it isn't working as it should!
 
@@ -35,16 +35,21 @@ Download binaries for various operating systems and architectures from the [rele
 ### Build from source
 
 1. Clone the repository:
+
    ```console
    $ git clone https://github.com/overhacked/ssh-agent-mux.git && cd ssh-agent-mux/
    ```
-2. Build:
+
+1. Build:
+
    ```console
    $ cargo build --release
    ```
 
    The resulting binary is located at `target/release/ssh-agent-mux`
-3. (Optional) Copy the binary to another location on your machine:
+
+1. (Optional) Copy the binary to another location on your machine:
+
    ```console
    $ mkdir -p ~/bin && cp target/release/ssh-agent-mux ~/bin/
    ```
@@ -62,6 +67,7 @@ $ systemctl --user enable --now ssh-agent-mux.service
 ```
 
 ### macOS
+
 ```console
 $ ssh-agent-mux service install
 ```
@@ -114,11 +120,11 @@ Socket path of an upstream SSH agent to forward `add_identity` requests to. When
 
 ## Related projects
 
-* [`ssh-manager`](https://github.com/omegion/ssh-manager): key manager for 1Password, Bitwarden, and AWS S3
-* [`OmniSSHAgent`](https://github.com/masahide/OmniSSHAgent?tab=readme-ov-file): unifies multiple communication methods for SSH agents on Windows
-* [`ssh-ident`](https://github.com/ccontavalli/ssh-ident): load ssh-agent identities on demand
-* [`sshecret`](https://github.com/thcipriani/sshecret): "wrapper around ssh that automatically manages multiple `ssh-agent`s, each containing only a single ssh key"
-* [`sshield`](https://github.com/gotlougit/sshield): drop-in ssh-agent replacement written in Rust using `russh`
+- [`ssh-manager`](https://github.com/omegion/ssh-manager): key manager for 1Password, Bitwarden, and AWS S3
+- [`OmniSSHAgent`](https://github.com/masahide/OmniSSHAgent?tab=readme-ov-file): unifies multiple communication methods for SSH agents on Windows
+- [`ssh-ident`](https://github.com/ccontavalli/ssh-ident): load ssh-agent identities on demand
+- [`sshecret`](https://github.com/thcipriani/sshecret): "wrapper around ssh that automatically manages multiple `ssh-agent`s, each containing only a single ssh key"
+- [`sshield`](https://github.com/gotlougit/sshield): drop-in ssh-agent replacement written in Rust using `russh`
 
 ## License
 
@@ -128,4 +134,4 @@ Dual-licensed under either [Apache License Version 2.0](https://opensource.org/l
 
 ## Copyright
 
-Copyright &copy; 2024-2025, [Ross Williams](mailto:ross@ross-williams.net)
+Copyright © 2024-2025, [Ross Williams](mailto:ross@ross-williams.net)

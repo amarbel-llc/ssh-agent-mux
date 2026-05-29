@@ -1,7 +1,7 @@
 use std::{env, fmt::Write, fs, io, path::PathBuf, process};
 
 use clap_serde_derive::clap::{self, Subcommand};
-use color_eyre::eyre::{bail, eyre, Result, WrapErr};
+use color_eyre::eyre::{Result, WrapErr, bail, eyre};
 
 use crate::cli::Config;
 

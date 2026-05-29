@@ -4,10 +4,7 @@ use ssh_agent_lib::{
     agent::{self, Agent, ListeningSocket, Session},
     client,
     error::AgentError,
-    proto::{
-        Extension, Identity, Unparsed,
-        extension::QueryResponse,
-    },
+    proto::{Extension, Identity, Unparsed, extension::QueryResponse},
 };
 use tempfile::TempDir;
 use tokio::net::UnixListener;
@@ -213,8 +210,16 @@ async fn pivy_like_agent_advertises_extensions_via_query() {
         .parse_message()
         .expect("should parse as QueryResponse")
         .expect("extension name should match");
-    assert!(query_response.extensions.contains(&"ecdh@joyent.com".to_string()));
-    assert!(query_response.extensions.contains(&"pivy-query@joyent.com".to_string()));
+    assert!(
+        query_response
+            .extensions
+            .contains(&"ecdh@joyent.com".to_string())
+    );
+    assert!(
+        query_response
+            .extensions
+            .contains(&"pivy-query@joyent.com".to_string())
+    );
 }
 
 /// The mux's query response must include extensions from upstream agents,
@@ -332,9 +337,18 @@ async fn mux_query_response_aggregates_multiple_upstreams() {
 
     let extensions: BTreeSet<_> = query_response.extensions.iter().collect();
     assert!(extensions.contains(&"session-bind@openssh.com".to_string()));
-    assert!(extensions.contains(&"ecdh@joyent.com".to_string()), "shared extension should appear");
-    assert!(extensions.contains(&"ext-a@example.com".to_string()), "agent-a extension");
-    assert!(extensions.contains(&"ext-b@example.com".to_string()), "agent-b extension");
+    assert!(
+        extensions.contains(&"ecdh@joyent.com".to_string()),
+        "shared extension should appear"
+    );
+    assert!(
+        extensions.contains(&"ext-a@example.com".to_string()),
+        "agent-a extension"
+    );
+    assert!(
+        extensions.contains(&"ext-b@example.com".to_string()),
+        "agent-b extension"
+    );
     // Deduplicated: ecdh@joyent.com appears in both but should only be listed once
     assert_eq!(
         query_response

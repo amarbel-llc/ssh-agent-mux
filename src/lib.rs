@@ -73,8 +73,7 @@ impl Session for MuxAgent {
         log::trace!("incoming: extension({})", request.name);
         match request.name.as_str() {
             "query" => {
-                let mut all_extensions =
-                    BTreeSet::from(["session-bind@openssh.com".to_string()]);
+                let mut all_extensions = BTreeSet::from(["session-bind@openssh.com".to_string()]);
 
                 for sock_path in &self.socket_paths {
                     let mut client = match self.connect_upstream_agent(sock_path).await {

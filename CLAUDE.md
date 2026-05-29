@@ -8,7 +8,7 @@ I/O and signal handling.
 
 ## Build & Test
 
-``` sh
+```sh
 just build          # nix build + cargo build
 just test           # cargo test + bats integration tests
 just test-rust      # cargo test only
@@ -27,7 +27,9 @@ invocation to panic with `PermissionDenied` --- even `--help` and `--version`.
 The `zz-tests_bats/justfile` passes `--allow-unix-sockets` to `bats` to permit
 this. If you see panics like:
 
-    failed to create UnixStream: Os { code: 1, kind: PermissionDenied, message: "Operation not permitted" }
+```
+failed to create UnixStream: Os { code: 1, kind: PermissionDenied, message: "Operation not permitted" }
+```
 
 The fix is `--allow-unix-sockets` on the `bats` command, **not** changing the
 Rust code or Claude Code sandbox settings.
