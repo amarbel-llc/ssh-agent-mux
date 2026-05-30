@@ -559,8 +559,45 @@ impl SelfDeletingUnixListener {
             std::fs::create_dir_all(parent)?;
         }
 
-        UnixListener::bind(&path).map(|listener| Self { path, listener })
+        match UnixListener::bind(&path) {
+            Ok(listener) => Ok(Self { path, listener }),
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                // A file already occupies the path. Only reclaim it when it is a
+                // stale socket --- a socket with no live listener, left behind
+                // by a SIGKILL, panic, or power loss. Never remove a non-socket
+                // file, and never steal a socket a running instance is still
+                // listening on (which would let two muxes fight over one path).
+                if !is_stale_socket(&path) {
+                    return Err(e);
+                }
+                log::warn!("Reclaiming stale socket at {}", path.display());
+                std::fs::remove_file(&path)?;
+                UnixListener::bind(&path).map(|listener| Self { path, listener })
+            }
+            Err(e) => Err(e),
+        }
     }
+}
+
+/// Whether `path` is an existing AF_UNIX socket with no process accepting
+/// connections, i.e. safe to unlink before re-binding. A live listener (connect
+/// succeeds) or any non-socket path returns `false`, so it is left untouched.
+fn is_stale_socket(path: &Path) -> bool {
+    use std::os::unix::fs::FileTypeExt;
+
+    let is_socket = std::fs::symlink_metadata(path)
+        .map(|m| m.file_type().is_socket())
+        .unwrap_or(false);
+    if !is_socket {
+        return false;
+    }
+
+    // A stale socket refuses connections (ECONNREFUSED); a live one accepts them
+    // into its backlog.
+    matches!(
+        std::os::unix::net::UnixStream::connect(path),
+        Err(e) if e.kind() == std::io::ErrorKind::ConnectionRefused
+    )
 }
 
 impl Drop for SelfDeletingUnixListener {
@@ -578,5 +615,57 @@ impl ListeningSocket for SelfDeletingUnixListener {
         UnixListener::accept(&self.listener)
             .await
             .map(|(s, _addr)| s)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::net::UnixListener as StdUnixListener;
+
+    // `SelfDeletingUnixListener::bind` is sync but calls tokio's
+    // `UnixListener::bind`, which registers with the reactor and so must run
+    // inside a runtime context. A current-thread runtime is enough.
+    fn runtime() -> tokio::runtime::Runtime {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn bind_reclaims_stale_socket() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("agent.sock");
+
+        // A std `UnixListener` does not unlink its path on drop, so the socket
+        // file outlives the listener --- exactly the stale-socket state left by
+        // a SIGKILL / panic / power loss (ssh-agent-mux#8).
+        drop(StdUnixListener::bind(&path).unwrap());
+        assert!(
+            path.exists(),
+            "stale socket file should survive the listener"
+        );
+
+        let rt = runtime();
+        let _guard = rt.enter();
+        SelfDeletingUnixListener::bind(&path)
+            .expect("bind should reclaim a stale socket and succeed");
+    }
+
+    #[test]
+    fn bind_refuses_live_socket() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("agent.sock");
+
+        // A live listener owns the path; bind must not steal it out from under
+        // a running instance.
+        let _live = StdUnixListener::bind(&path).unwrap();
+
+        let rt = runtime();
+        let _guard = rt.enter();
+        let err = SelfDeletingUnixListener::bind(&path)
+            .expect_err("bind must refuse to reclaim a live socket");
+        assert_eq!(err.kind(), std::io::ErrorKind::AddrInUse);
     }
 }
