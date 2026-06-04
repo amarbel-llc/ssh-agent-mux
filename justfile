@@ -33,18 +33,19 @@ test-rust:
 test-bats: build-rust
   PATH="{{justfile_directory()}}/{{dir_build}}/debug:$PATH" just zz-tests_bats/test
 
-# Render the Home Manager module's config mapping to TOML and validate it with
-# the binary, guarding the kebab-case wire format against serde drift
-# (nix/config-settings.nix). Serves the home-manager module dev-loop.
+# Faithfully evaluate the Home Manager module: builds a sample
+# homeManagerConfiguration (firing assertions + units) and validates the
+# rendered config against the binary (nix/home-manager.nix, ssh-agent-mux#13).
+# Serves the home-manager module dev-loop.
 [group('post-build')]
-test-config-render:
+test-home-manager-module:
   #!/usr/bin/env bash
   set -euo pipefail
   # Mirrors lint-fmt: build a single named check for the current system.
   system=$(nix eval --raw --impure --expr 'builtins.currentSystem')
-  nix build ".#checks.${system}.config-render" --no-link --print-build-logs
+  nix build ".#checks.${system}.home-manager-module" --no-link --print-build-logs
 
-test: test-rust test-bats test-config-render
+test: test-rust test-bats test-home-manager-module
 
 # Format the whole tree in place with treefmt (`nix fmt`); gate is `lint-fmt`.
 [group('codemod')]

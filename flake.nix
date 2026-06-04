@@ -2,7 +2,10 @@
   description = "Combine keys from multiple SSH agents into a single agent socket";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/4590696c8693fea477850fe379a01544293ca4e2";
+    # Pinned to the nixos-26.05 release branch to stay aligned with the eng
+    # workspace's nixpkgs (amarbel-llc/eng flake.nix). 26.05 carries the
+    # `lib/services` framework that home-manager's module system now needs.
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     nixpkgs-master.url = "github:NixOS/nixpkgs/ae921939fcbd44874664477bd1d22543c10a8306";
     utils.url = "https://flakehub.com/f/numtide/flake-utils/0.1.102";
     rust-overlay = {
@@ -24,6 +27,14 @@
       url = "github:numtide/treefmt-nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # home-manager supplies the module system behind the faithful
+    # `checks.home-manager-module` eval check (ssh-agent-mux#13). Follows this
+    # flake's nixpkgs so the module evaluates against the same package set the
+    # binary is built from.
+    home-manager = {
+      url = "github:nix-community/home-manager/release-26.05";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -36,6 +47,7 @@
       bats,
       tap,
       treefmt-nix,
+      home-manager,
     }:
     # System-agnostic outputs (Home Manager module) merged with the per-system
     # outputs produced by eachDefaultSystem below.
@@ -90,43 +102,56 @@
         formatter = treefmtEval.config.build.wrapper;
         checks.formatting = treefmtEval.config.build.check self;
 
-        # Renders the Home Manager module's config mapping
-        # (nix/config-settings.nix) to TOML and validates it with the binary, so
-        # a drift between the module's kebab-case keys and the Rust serde schema
-        # (`deny_unknown_fields`) fails the build. Cheaper than a full
-        # home-manager eval; see ssh-agent-mux#13 for the faithful version.
-        checks.config-render =
+        # Faithful eval of the Home Manager module (ssh-agent-mux#13): builds a
+        # sample homeManagerConfiguration that enables services.ssh-agent-mux,
+        # forces its activation package (firing the assertions and rendering the
+        # systemd unit + config), then validates the rendered TOML against the
+        # binary. Exercises the module itself --- option declarations, mkMerge
+        # wiring, assertions, unit attrs --- not just the settings mapping.
+        checks.home-manager-module =
           let
-            configSettings = import ./nix/config-settings.nix { inherit (pkgs) lib; };
-            renderedConfig = (pkgs.formats.toml { }).generate "ssh-agent-mux.toml" (configSettings {
-              listenPath = "/tmp/ssh-agent-mux/agent.sock";
-              logLevel = "info";
-              logFile = null;
-              agentTimeout = 5;
-              addNewKeysTo = "1password";
-              agents = [
+            hmConfig = home-manager.lib.homeManagerConfiguration {
+              inherit pkgs;
+              modules = [
+                self.homeManagerModules.default
                 {
-                  name = "1password";
-                  socketPath = "~/.1password/agent.sock";
-                  enabled = true;
-                }
-                {
-                  name = "yubikey";
-                  socketPath = "~/.ssh/yubikey-agent.sock";
-                  enabled = false;
+                  home.username = "tester";
+                  home.homeDirectory = "/home/tester";
+                  home.stateVersion = "24.11";
+                  services.ssh-agent-mux = {
+                    enable = true;
+                    addNewKeysTo = "1password";
+                    agents = [
+                      {
+                        name = "1password";
+                        socketPath = "~/.1password/agent.sock";
+                      }
+                      {
+                        name = "yubikey";
+                        socketPath = "~/.ssh/yubikey-agent.sock";
+                        enabled = false;
+                      }
+                    ];
+                    # Exercise the freeform escape hatch and its precedence.
+                    settings.log-level = "debug";
+                  };
                 }
               ];
-              # Exercise the freeform escape hatch and its precedence over the
-              # structured options above.
-              settings.log-level = "debug";
-            });
+            };
+            renderedConfig = hmConfig.config.xdg.configFile."ssh-agent-mux/ssh-agent-mux.toml".source;
           in
-          pkgs.runCommand "ssh-agent-mux-config-render-check" { } ''
-            export HOME="$TMPDIR"
-            ${self.packages.${system}.default}/bin/ssh-agent-mux \
-              --config ${renderedConfig} config validate
-            touch "$out"
-          '';
+          pkgs.runCommand "ssh-agent-mux-home-manager-module-check"
+            {
+              # Build the activation package so the module's assertions and unit
+              # files are evaluated and realized, not just the config TOML.
+              inherit (hmConfig) activationPackage;
+            }
+            ''
+              export HOME="$TMPDIR"
+              ${self.packages.${system}.default}/bin/ssh-agent-mux \
+                --config ${renderedConfig} config validate
+              touch "$out"
+            '';
 
         packages.default = pkgs.rustPlatform.buildRustPackage {
           pname = "ssh-agent-mux";

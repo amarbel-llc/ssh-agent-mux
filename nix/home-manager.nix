@@ -20,12 +20,26 @@ let
 
   tomlFormat = pkgs.formats.toml { };
 
-  # The structured-options -> kebab-case wire-format mapping lives in a shared
-  # file (nix/config-settings.nix) so the `checks.config-render` flake check can
-  # render and validate it against the binary, guarding against serde drift.
-  configSettings = import ./config-settings.nix { inherit lib; } cfg;
+  # Structured options -> the kebab-case keys the binary's serde config expects.
+  # Nulls are dropped so they fall back to the binary's own defaults, and any
+  # `settings` escape-hatch keys are layered on top. The whole mapping is
+  # exercised end-to-end against the binary by the `checks.home-manager-module`
+  # flake check (ssh-agent-mux#13).
+  baseSettings = lib.filterAttrs (_: v: v != null) {
+    listen-path = cfg.listenPath;
+    log-level = cfg.logLevel;
+    log-file = cfg.logFile;
+    agent-timeout = cfg.agentTimeout;
+    add-new-keys-to = cfg.addNewKeysTo;
+    agents = map (a: {
+      inherit (a) name enabled;
+      socket-path = a.socketPath;
+    }) cfg.agents;
+  };
 
-  configFile = tomlFormat.generate "ssh-agent-mux.toml" configSettings;
+  configFile = tomlFormat.generate "ssh-agent-mux.toml" (
+    lib.recursiveUpdate baseSettings cfg.settings
+  );
 
   agentNames = map (a: a.name) cfg.agents;
   enabledAgentNames = map (a: a.name) (lib.filter (a: a.enabled) cfg.agents);
