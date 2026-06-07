@@ -79,8 +79,7 @@ one new `cargoLock.outputHashes` entry in flake.nix, same pattern as
   committed as of this design.
 
 ssh-agent-mux's check code emits through one thin internal trait
-(`HealthSink`: plan-ahead, test point `{n, description, ok, skip-reason,
-yaml-diagnostics}`, summary) with two impls delegating to the upstream
+(`HealthSink`: plan-ahead, test point `{n, description, ok, skip-reason, yaml-diagnostics}`, summary) with two impls delegating to the upstream
 writers — unless upstream ships its own writer-agnostic interface, in
 which case theirs is used and the trait disappears.
 
@@ -124,6 +123,5 @@ justfile debug recipes remain as the deeper service-manager diagnostics.
 ## Coordination
 
 - `tap/clear-cherry` (upstream NDJSON writer): wishlist relayed via Sasha —
-  per-test `{number, description, ok, skip directive+reason, diagnostic
-  map}`, plan-ahead, summary, and ideally a common trait over both writers.
+  per-test `{number, description, ok, skip directive+reason, diagnostic map}`, plan-ahead, summary, and ideally a common trait over both writers.
 - Follow-up after upstream lands: pin bump + NDJSON impl + bats lane.

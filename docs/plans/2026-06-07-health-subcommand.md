@@ -14,11 +14,12 @@
 
 **Conventions for every commit:** sign off as Clown per the global instructions. Do NOT run `just` before `merge-this-session` (the merge hook runs it). Cheap compile checks (`cargo build`) are fine. After adding new files, `git add` them before any `nix build` (dirty-tree nix builds only see tracked files).
 
----
+______________________________________________________________________
 
 ## Task 1: Add the `tap-dancer` git dependency
 
 **Files:**
+
 - Modify: `Cargo.toml` (deps), `Cargo.lock`
 - Modify: `flake.nix:162-166` (`cargoLock.outputHashes`)
 
@@ -43,11 +44,12 @@ Expected: PASS.
 
 `git add flake.nix && git commit -m "build: add tap-dancer git dependency"`
 
----
+______________________________________________________________________
 
 ## Task 2: Split config parsing so subcommands can see config errors
 
 **Files:**
+
 - Modify: `src/bin/ssh-agent-mux/cli.rs:158-191` (`Config::parse`)
 - Test: existing `cargo test` suite (behavior-preserving refactor)
 
@@ -112,11 +114,12 @@ Expected: PASS (pure refactor).
 
 `git commit -am "refactor(cli): split arg parsing from config loading"`
 
----
+______________________________________________________________________
 
 ## Task 3: `Health` subcommand variant + dispatch skeleton
 
 **Files:**
+
 - Modify: `src/bin/ssh-agent-mux/service.rs:16-28` (Command enum)
 - Create: `src/bin/ssh-agent-mux/health.rs`
 - Modify: `src/bin/ssh-agent-mux/main.rs`
@@ -231,11 +234,12 @@ Expected: the two new tests PASS (help + ndjson error); everything else still gr
 
 `git add -A && git commit -m "feat(health): subcommand skeleton with --format flag"`
 
----
+______________________________________________________________________
 
 ## Task 4: `HealthSink` trait + TAP-text sink
 
 **Files:**
+
 - Create: `src/bin/ssh-agent-mux/health/sink.rs` (convert `health.rs` to `health/mod.rs`)
 - Test: unit tests in `sink.rs`
 
@@ -411,7 +415,7 @@ Expected: PASS.
 
 `git add -A && git commit -m "feat(health): HealthSink trait + TAP text sink"`
 
----
+______________________________________________________________________
 
 ## Task 5: Check engine with config check + placeholder skips
 
@@ -420,6 +424,7 @@ this task on; each later task replaces one placeholder
 (`CheckStatus::Skip("not implemented")`) with a real check.
 
 **Files:**
+
 - Modify: `src/bin/ssh-agent-mux/health/mod.rs`
 - Test: `zz-tests_bats/health.bats`
 
@@ -536,11 +541,12 @@ Expected: PASS (note `1..6` = 5 + 1 agent).
 
 `git add -A && git commit -m "feat(health): check engine, config check, plan + exit codes"`
 
----
+______________________________________________________________________
 
 ## Task 6: Service-manager checks (installed, active)
 
 **Files:**
+
 - Modify: `src/bin/ssh-agent-mux/service.rs` (make `systemd_unit_dest()` — and on macOS the plist dest fn — `pub(crate)`)
 - Create: `src/bin/ssh-agent-mux/health/service_state.rs`
 - Test: unit tests in `service_state.rs`
@@ -617,11 +623,12 @@ In `emit_checks`, replace the two placeholders:
 
 **Step 5: Commit** — `git add -A && git commit -m "feat(health): service installed/active checks"`
 
----
+______________________________________________________________________
 
 ## Task 7: Listener-identity check (Linux)
 
 **Files:**
+
 - Create: `src/bin/ssh-agent-mux/health/socket_holder.rs`
 - Test: unit tests with fixture strings
 
@@ -694,6 +701,7 @@ pub fn pid_cgroup(pid: u32) -> Option<String> {
 ```
 
 Wire the `listen socket held by service` placeholder (all `#[cfg(target_os = "linux")]`; macOS emits `Skip("not implemented on macos")`):
+
 - service skipped or no `main_pid` → `Skip("service not active")`
 - inode not found → NotOk, `("error", "listen path not present in /proc/net/unix")`
 - `pid_holds_socket_inode(main_pid, inode)` → Ok with `("main-pid", ...)`
@@ -703,11 +711,12 @@ Wire the `listen socket held by service` placeholder (all `#[cfg(target_os = "li
 
 **Step 5: Commit** — `git commit -am "feat(health): listener-identity check via /proc"`
 
----
+______________________________________________________________________
 
 ## Task 8: Protocol probes (listen socket + upstreams)
 
 **Files:**
+
 - Create: `src/bin/ssh-agent-mux/health/probe.rs`
 - Test: async unit test binding a real `MuxAgent` (pattern: `src/lib.rs:622-671`)
 
@@ -776,6 +785,7 @@ pub async fn probe_agent(path: &Path, timeout: Duration) -> Result<usize, String
 ```
 
 Wire the remaining placeholders in `emit_checks` (timeout = `Duration::from_secs(config.agent_timeout)`, the design's tuning lever):
+
 - `listen socket answers`: probe `config.listen_path`; Ok + `("keys", n)` / NotOk + `("error", e)`.
 - `upstream <name> answers`: per agent in config order; `!agent.enabled` → `Skip("disabled")`; else probe `agent.socket_path` the same way. Key counts never flip ok/not-ok.
 
@@ -783,11 +793,12 @@ Wire the remaining placeholders in `emit_checks` (timeout = `Duration::from_secs
 
 **Step 5: Commit** — `git commit -am "feat(health): protocol probes with key-count diagnostics"`
 
----
+______________________________________________________________________
 
 ## Task 9: End-to-end bats coverage
 
 **Files:**
+
 - Test: `zz-tests_bats/health.bats`, helper in `zz-tests_bats/common.bash`
 
 **Step 1: Add a daemon helper to common.bash**
@@ -865,17 +876,18 @@ Note `run_ssh_agent_mux` wraps in `timeout 2s`; health against dead sockets must
 
 **Step 4: Commit** — `git add -A && git commit -m "test(health): end-to-end bats coverage"`
 
----
+______________________________________________________________________
 
 ## Task 10: Documentation
 
 **Files:**
+
 - Modify: `CLAUDE.md` (Architecture list: add `health.rs`)
 - Modify: `README.md` (subcommand usage; mention TAP output + exit codes; note ndjson pending)
 
 **Steps:** make both edits, then `git commit -am "docs: document health subcommand"`.
 
----
+______________________________________________________________________
 
 ## Follow-ups (not in this plan)
 
