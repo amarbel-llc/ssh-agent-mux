@@ -25,6 +25,12 @@ pub enum Command {
         #[command(subcommand)]
         command: ConfigCommand,
     },
+    /// Check agent and service health, emitting TAP
+    Health {
+        /// Output format (auto: TAP text on a tty; tap-ndjson otherwise once available)
+        #[arg(long = "format", value_enum, default_value_t = crate::health::HealthFormat::Auto)]
+        format: crate::health::HealthFormat,
+    },
 }
 
 #[derive(Subcommand, Clone, Copy)]
@@ -51,6 +57,7 @@ pub fn handle_command(command: &Command, config: &Config) -> Result<()> {
     match command {
         Command::Config { command } => handle_config_command(command, config),
         Command::Service { command } => handle_service_command(command, config),
+        Command::Health { .. } => unreachable!("health is dispatched in main"),
     }
 }
 

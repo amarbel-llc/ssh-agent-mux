@@ -6,6 +6,7 @@ use tokio::select;
 use tokio::signal::{self, unix::SignalKind};
 
 mod cli;
+mod health;
 mod logging;
 mod service;
 
@@ -30,7 +31,15 @@ fn install_eyre_hook() -> EyreResult<()> {
 async fn main() -> EyreResult<()> {
     install_eyre_hook()?;
 
-    let (mut config, command) = cli::Config::parse()?;
+    let (command, config_res) = cli::Config::parse_split();
+
+    // health owns stdout for its TAP stream and must see config errors
+    // itself, so dispatch before logger setup and config unwrap.
+    if let Some(service::Command::Health { format }) = command {
+        return health::run(config_res, format).await;
+    }
+
+    let mut config = config_res?;
 
     // Create parent directory for log file if it doesn't exist
     if let Some(ref log_file) = config.log_file {
