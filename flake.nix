@@ -163,6 +163,7 @@
             lockFile = ./Cargo.lock;
             outputHashes = {
               "ssh-agent-lib-0.6.0" = "sha256-wRVRMHvON7yzsswn8k069rbqt2+364Pda+jOcYlB5Pw=";
+              "tap-dancer-0.1.11" = "sha256-yHqTfFMIPID9EYLYCop/p6z2St1zRdFGhPJXesnUG70=";
             };
           };
 
