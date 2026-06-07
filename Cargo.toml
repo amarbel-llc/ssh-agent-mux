@@ -16,7 +16,7 @@ expand-tilde = "0.6.0"
 flexi_logger = "0.30.1"
 shellexpand = "3.1.0"
 ssh-agent-lib = { git = "https://github.com/amarbel-llc/ssh-agent-lib.git", branch = "master" }
-tap-dancer = { git = "https://github.com/amarbel-llc/tap.git", tag = "v0.1.11", version = "0.1.11" }
+tap-dancer = { git = "https://github.com/amarbel-llc/tap.git", tag = "v0.1.12", version = "0.1.12" }
 tempfile = "3.20.0"
 toml = "0.8.22"
 

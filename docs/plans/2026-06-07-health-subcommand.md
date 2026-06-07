@@ -10,7 +10,7 @@
 
 **Rollback:** Purely additive — revert the commits. No existing behavior changes except the `Config::parse` internal split (kept signature-compatible).
 
-**Design doc:** `docs/plans/2026-06-07-health-subcommand-design.md` (approved). One temporary deviation, agreed during planning: until the upstream NDJSON writer lands, `--format auto` resolves to TAP text even on non-tty, and `--format ndjson` errors with "not yet supported". The design's tty-sniffing contract activates when NDJSON is wired in.
+**Design doc:** `docs/plans/2026-06-07-health-subcommand-design.md` (approved). One temporary deviation, agreed during planning: until the upstream NDJSON writer lands, `--format auto` resolves to TAP text even on non-tty, and `--format ndjson` errors with "not yet supported". The design's tty-sniffing contract activates when NDJSON is wired in. \[Amendment 2026-06-07: tap-dancer v0.1.12 shipped the NDJSON writer + `Reporter` facade mid-implementation; the user approved folding it in. Plan-Task 4 (`HealthSink`/`TapTextSink`) is superseded by `Reporter`; plan-Task 5 wires it, retiring the deviation above.\]
 
 **Conventions for every commit:** sign off as Clown per the global instructions. Do NOT run `just` before `merge-this-session` (the merge hook runs it). Cheap compile checks (`cargo build`) are fine. After adding new files, `git add` them before any `nix build` (dirty-tree nix builds only see tracked files).
 

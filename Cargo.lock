@@ -1718,12 +1718,14 @@ dependencies = [
 
 [[package]]
 name = "tap-dancer"
-version = "0.1.11"
-source = "git+https://github.com/amarbel-llc/tap.git?tag=v0.1.11#032c7656c7e8f5208b692faf6eebd181c2d82092"
+version = "0.1.12"
+source = "git+https://github.com/amarbel-llc/tap.git?tag=v0.1.12#236a817f4a17b49b0ceb2ab597b0d69d42cb7df5"
 dependencies = [
  "fixed_decimal",
  "icu_decimal",
  "icu_locale_core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
