@@ -11,9 +11,11 @@ use tap_dancer::{NdjsonWriter, Reporter, TapWriterBuilder};
 
 use crate::cli::Config;
 
+mod probe;
 mod service_state;
 mod socket_holder;
 
+use probe::ProbeReport;
 use service_state::{InstallStatus, ServiceProbe};
 use socket_holder::ListenerCheck;
 
@@ -47,16 +49,15 @@ fn reporter_for(format: HealthFormat, w: &mut dyn Write, is_tty: bool) -> io::Re
     }
 }
 
-/// Emit every health check as a test point. Later plan tasks replace the
-/// remaining `skip(..., "not implemented")` placeholders with real probes;
-/// the plan count and descriptions are already final. Host facts arrive
-/// pre-resolved in `service` and `listener` so unit tests stay
-/// deterministic.
+/// Emit every health check as a test point. Host facts arrive
+/// pre-resolved in `service`, `listener`, and `probes` so unit tests
+/// stay deterministic.
 fn emit_checks(
     r: &mut Reporter,
     config_res: &Result<Config>,
     service: &ServiceProbe,
     listener: &ListenerCheck,
+    probes: &ProbeReport,
 ) -> io::Result<()> {
     let config = match config_res {
         Err(e) => {
@@ -89,12 +90,34 @@ fn emit_checks(
 
     emit_service_active(r, service)?;
     emit_listener_check(r, listener)?;
-    r.skip("listen socket answers", "not implemented")?;
-    for agent in &config.agents {
-        r.skip(
-            &format!("upstream {} answers", agent.name),
-            "not implemented",
-        )?;
+    emit_probe_checks(r, config, probes)?;
+    Ok(())
+}
+
+/// Render the protocol-probe points: "listen socket answers" plus one
+/// "upstream <name> answers" per configured agent in config order. Key
+/// counts are diagnostics only — an answering agent with zero keys is
+/// still ok.
+fn emit_probe_checks(r: &mut Reporter, config: &Config, probes: &ProbeReport) -> io::Result<()> {
+    match &probes.listen {
+        Ok(keys) => r.ok_diag("listen socket answers", &[("keys", json!(keys))])?,
+        Err(e) => r.not_ok_diag("listen socket answers", &[("error", json!(e))])?,
+    };
+    debug_assert_eq!(config.agents.len(), probes.upstreams.len());
+    for (agent, probed) in config.agents.iter().zip(&probes.upstreams) {
+        let desc = format!("upstream {} answers", agent.name);
+        match probed {
+            None => r.skip_diag(
+                &desc,
+                "disabled",
+                &[(
+                    "socket-path",
+                    json!(agent.socket_path.display().to_string()),
+                )],
+            )?,
+            Some(Ok(keys)) => r.ok_diag(&desc, &[("keys", json!(keys))])?,
+            Some(Err(e)) => r.not_ok_diag(&desc, &[("error", json!(e))])?,
+        };
     }
     Ok(())
 }
@@ -176,8 +199,17 @@ pub async fn run(config_res: Result<Config>, format: HealthFormat) -> Result<()>
             .map(|config| config.listen_path.as_path()),
         &service,
     );
+    let probes = match config_res.as_ref() {
+        Ok(config) => probe::probe_all(config).await,
+        // Never rendered: emit_checks bails out before any probe point
+        // when the config is unusable.
+        Err(_) => ProbeReport {
+            listen: Err("config unusable".to_string()),
+            upstreams: Vec::new(),
+        },
+    };
     let mut reporter = reporter_for(format, &mut out, is_tty)?;
-    emit_checks(&mut reporter, &config_res, &service, &listener)?;
+    emit_checks(&mut reporter, &config_res, &service, &listener, &probes)?;
     reporter.finish()?;
     let has_failures = reporter.has_failures();
     drop(reporter);
@@ -231,16 +263,36 @@ socket-path = "/tmp/does-not-exist.sock"
         ListenerCheck::Skipped(socket_holder::SKIP_NOT_ACTIVE.to_string())
     }
 
+    /// Deterministic probe default: every socket answers with zero keys,
+    /// so fixtures that exercise other checks stay failure-free.
+    fn probes_all_answering(config_res: &Result<Config>) -> ProbeReport {
+        let upstreams = config_res
+            .as_ref()
+            .map(|config| {
+                config
+                    .agents
+                    .iter()
+                    .map(|agent| agent.enabled.then(|| Ok::<usize, String>(0)))
+                    .collect()
+            })
+            .unwrap_or_default();
+        ProbeReport {
+            listen: Ok(0),
+            upstreams,
+        }
+    }
+
     fn emit_full(
         format: HealthFormat,
         is_tty: bool,
         config_res: &Result<Config>,
         service: &ServiceProbe,
         listener: &ListenerCheck,
+        probes: &ProbeReport,
     ) -> (String, bool) {
         let mut buf = Vec::new();
         let mut reporter = reporter_for(format, &mut buf, is_tty).unwrap();
-        emit_checks(&mut reporter, config_res, service, listener).unwrap();
+        emit_checks(&mut reporter, config_res, service, listener, probes).unwrap();
         reporter.finish().unwrap();
         let has_failures = reporter.has_failures();
         drop(reporter);
@@ -253,7 +305,14 @@ socket-path = "/tmp/does-not-exist.sock"
         config_res: &Result<Config>,
         service: &ServiceProbe,
     ) -> (String, bool) {
-        emit_full(format, is_tty, config_res, service, &listener_not_active())
+        emit_full(
+            format,
+            is_tty,
+            config_res,
+            service,
+            &listener_not_active(),
+            &probes_all_answering(config_res),
+        )
     }
 
     fn emit(format: HealthFormat, is_tty: bool, config_res: &Result<Config>) -> (String, bool) {
@@ -268,7 +327,28 @@ socket-path = "/tmp/does-not-exist.sock"
             active_state: Some("active".into()),
             main_pid: Some(16891),
         }));
-        emit_full(HealthFormat::Tap, false, &config_res, &probe, listener)
+        emit_full(
+            HealthFormat::Tap,
+            false,
+            &config_res,
+            &probe,
+            listener,
+            &probes_all_answering(&config_res),
+        )
+    }
+
+    /// Tap-format emit with the given probe report against the one-agent
+    /// config — the fixture for the protocol-probe render tests.
+    fn emit_probes(probes: &ProbeReport) -> (String, bool) {
+        let config_res = Ok(config_with_one_agent());
+        emit_full(
+            HealthFormat::Tap,
+            false,
+            &config_res,
+            &probe_not_installed(),
+            &listener_not_active(),
+            probes,
+        )
     }
 
     #[test]
@@ -286,10 +366,9 @@ socket-path = "/tmp/does-not-exist.sock"
             "got: {out}"
         );
         assert!(out.contains("agents: 1"), "got: {out}");
-        assert!(
-            out.contains("ok 6 - upstream fake answers # SKIP not implemented"),
-            "got: {out}"
-        );
+        assert!(out.contains("ok 5 - listen socket answers"), "got: {out}");
+        assert!(out.contains("ok 6 - upstream fake answers"), "got: {out}");
+        assert!(out.contains("keys: 0"), "got: {out}");
     }
 
     #[test]
@@ -320,8 +399,10 @@ socket-path = "/tmp/does-not-exist.sock"
         assert!(out.contains("\"agents\":1"), "got: {out}");
         let summary: serde_json::Value = serde_json::from_str(lines.last().unwrap()).unwrap();
         assert_eq!(summary["type"], "summary");
-        assert_eq!(summary["passed"], 1);
-        assert_eq!(summary["skipped"], 5);
+        // config valid + listen socket answers + upstream fake answers.
+        assert_eq!(summary["passed"], 3);
+        // service installed, service active, listen socket held by service.
+        assert_eq!(summary["skipped"], 3);
         assert_eq!(summary["failed"], 0);
         // plan + (STATIC_CHECKS + 1 agent) tests + summary
         assert_eq!(lines.len(), 1 + (STATIC_CHECKS + 1) + 1);
@@ -494,6 +575,81 @@ socket-path = "/tmp/does-not-exist.sock"
                 "ok 3 - service active # SKIP {}",
                 service_state::MANAGER_UNAVAILABLE
             )),
+            "got: {out}"
+        );
+    }
+
+    #[test]
+    fn listen_probe_answering_emits_key_count() {
+        let (out, has_failures) = emit_probes(&ProbeReport {
+            listen: Ok(7),
+            upstreams: vec![Some(Ok(7))],
+        });
+        assert!(!has_failures);
+        assert!(out.contains("ok 5 - listen socket answers"), "got: {out}");
+        assert!(out.contains("keys: 7"), "got: {out}");
+    }
+
+    /// Key counts are diagnostics only: zero keys never flips a probe
+    /// point to not-ok.
+    #[test]
+    fn listen_probe_zero_keys_is_still_ok() {
+        let (out, has_failures) = emit_probes(&ProbeReport {
+            listen: Ok(0),
+            upstreams: vec![Some(Ok(0))],
+        });
+        assert!(!has_failures);
+        assert!(out.contains("ok 5 - listen socket answers"), "got: {out}");
+        assert!(out.contains("ok 6 - upstream fake answers"), "got: {out}");
+    }
+
+    #[test]
+    fn listen_probe_failure_emits_error_diag() {
+        let (out, has_failures) = emit_probes(&ProbeReport {
+            listen: Err("connect /run/mux.sock: connection refused".to_string()),
+            upstreams: vec![Some(Ok(0))],
+        });
+        assert!(has_failures);
+        assert!(
+            out.contains("not ok 5 - listen socket answers"),
+            "got: {out}"
+        );
+        assert!(
+            out.contains("error: \"connect /run/mux.sock: connection refused\""),
+            "got: {out}"
+        );
+    }
+
+    #[test]
+    fn upstream_probe_failure_emits_error_diag() {
+        let (out, has_failures) = emit_probes(&ProbeReport {
+            listen: Ok(0),
+            upstreams: vec![Some(Err("request_identities: timed out".to_string()))],
+        });
+        assert!(has_failures);
+        assert!(
+            out.contains("not ok 6 - upstream fake answers"),
+            "got: {out}"
+        );
+        assert!(
+            out.contains("error: \"request_identities: timed out\""),
+            "got: {out}"
+        );
+    }
+
+    #[test]
+    fn upstream_disabled_skips_with_socket_path() {
+        let (out, has_failures) = emit_probes(&ProbeReport {
+            listen: Ok(0),
+            upstreams: vec![None],
+        });
+        assert!(!has_failures);
+        assert!(
+            out.contains("ok 6 - upstream fake answers # SKIP disabled"),
+            "got: {out}"
+        );
+        assert!(
+            out.contains("socket-path: \"/tmp/does-not-exist.sock\""),
             "got: {out}"
         );
     }
