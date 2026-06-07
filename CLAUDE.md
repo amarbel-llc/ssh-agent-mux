@@ -36,8 +36,7 @@ git-tracked or the lane silently omits them.
 init timeout); the nix lane is the fallback and the source of truth.
 Wrapper flags worth knowing: `--no-sandbox` (bypass fence),
 `--allow-local-binding`, `--no-tempdir-cleanup`. The pre-fence
-`--allow-unix-sockets` flag no longer exists (fatal `Bad command line
-option`). Run `bats version` (positional) for wrapper/component versions.
+`--allow-unix-sockets` flag no longer exists (fatal `Bad command line option`). Run `bats version` (positional) for wrapper/component versions.
 
 ## Architecture
 
