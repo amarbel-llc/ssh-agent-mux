@@ -232,6 +232,97 @@ release new_version:
   # gh release create is the publication step; CI on tag push is verify-only.
   gh release create "$tag" --title "$tag" --notes "$notes"
 
+# Dump the live HM user service's health: unit status, boot journal, agent
+# sockets, SSH_AUTH_SOCK, and installed binary. Read-only; serves the
+# "service unhealthy after restart" debug loop.
+[group('debug')]
+debug-service-health:
+  #!/usr/bin/env bash
+  set -uo pipefail
+  # No -e: a failed unit makes systemctl/journalctl exit non-zero, and we want
+  # the full evidence dump regardless.
+  state_home="${XDG_STATE_HOME:-$HOME/.local/state}"
+
+  echo "=== systemctl --user status ssh-agent-mux ==="
+  systemctl --user status ssh-agent-mux --no-pager || true
+  echo
+
+  echo "=== journalctl --user -u ssh-agent-mux (this boot, last 50 lines) ==="
+  journalctl --user -u ssh-agent-mux -b --no-pager 2>&1 | tail -50
+  echo
+
+  echo "=== SSH_AUTH_SOCK ==="
+  echo "${SSH_AUTH_SOCK:-<unset>}"
+  echo
+
+  echo "=== agent state dirs ==="
+  ls -la "$state_home/ssh/" 2>&1 || true
+  ls -la "$state_home/ssh-agent-mux/" 2>&1 || true
+  echo
+
+  echo "=== live mux processes + unix listeners ==="
+  pgrep -af ssh-agent-mux || echo "(no ssh-agent-mux process)"
+  ss -xlp 2>/dev/null | grep -F -e agent -e mux || echo "(no matching unix listeners)"
+  echo
+
+  echo "=== owning cgroup of each mux process ==="
+  for pid in $(pgrep -f ssh-agent-mux); do
+    echo "--- pid $pid ---"
+    cat "/proc/$pid/cgroup" 2>/dev/null || echo "(gone)"
+  done
+  echo
+
+  echo "=== agent-ish user units (files + runtime state) ==="
+  ls -la ~/.config/systemd/user/ 2>/dev/null | grep -i -e agent -e mux || true
+  systemctl --user list-units --all --no-pager 2>/dev/null | grep -i -e agent -e mux || true
+
+  echo "=== installed binary ==="
+  if command -v ssh-agent-mux >/dev/null; then
+    readlink -f "$(command -v ssh-agent-mux)"
+    ssh-agent-mux --version 2>&1 || true
+  else
+    echo "ssh-agent-mux not on PATH"
+  fi
+
+# Probe each agent socket (mux listen + upstreams from the installed config)
+# with `ssh-add -l` to see who actually answers and with how many keys.
+# Read-only; serves the "service unhealthy after restart" debug loop.
+[group('debug')]
+debug-probe-sockets:
+  #!/usr/bin/env bash
+  set -uo pipefail
+  config="${XDG_CONFIG_HOME:-$HOME/.config}/ssh-agent-mux/ssh-agent-mux.toml"
+  if [[ ! -f "$config" ]]; then
+    echo "no config found at $config" >&2
+    exit 1
+  fi
+
+  probe() {
+    local sock="$1"
+    echo "--- $sock ---"
+    if [[ ! -S "$sock" ]]; then
+      echo "(not a socket / missing)"
+      return
+    fi
+    SSH_AUTH_SOCK="$sock" ssh-add -l 2>&1 || true
+  }
+
+  # listen-path plus every upstream socket-path, with ~/$HOME expansion as the
+  # binary itself would do.
+  grep -E '^(listen-path|socket-path)' "$config" \
+    | sed -E 's/^[a-z-]+ *= *"(.*)"/\1/' \
+    | while read -r sock; do
+        sock="${sock/#\$HOME/$HOME}"
+        sock="${sock/#\~/$HOME}"
+        sock="${sock//\$\{HOME\}/$HOME}"
+        probe "$sock"
+      done
+
+  if [[ -n "${SSH_AUTH_SOCK:-}" ]]; then
+    echo "--- \$SSH_AUTH_SOCK ($SSH_AUTH_SOCK) ---"
+    SSH_AUTH_SOCK="$SSH_AUTH_SOCK" ssh-add -l 2>&1 || true
+  fi
+
 # Stand up a throwaway mux vs your real upstreams; dump aggregated query extensions (ssh-agent-mux#10).
 [group('debug')]
 debug-query-aggregation: build-rust
