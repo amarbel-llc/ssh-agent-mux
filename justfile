@@ -66,6 +66,33 @@ codemod-fmt-treefmt:
 
 codemod-fmt: codemod-fmt-treefmt
 
+# Conformist pilot (ssh-agent-mux#16): format the files staged in the index
+# and restage them, so the caller's own commit proceeds with conformant
+# content (message/signing/trailer stay the caller's). Exit 0 = staged
+# content already clean, 3 = reformatted+restaged --- both success here.
+# Partially staged files are refused before any formatting (grep-stable
+# "partially staged" token). Serves the mid-task agent commit loop.
+[group('codemod')]
+codemod-fmt-staged:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  rc=0; conformist --staged || rc=$?
+  case "$rc" in 0|3) exit 0 ;; *) exit "$rc" ;; esac
+
+# Conformist pilot (ssh-agent-mux#16): full-tree fix + auto-commit
+# (`chore: conformist fmt+fix`), then the read-only check for anything a
+# formatter can't repair. Exit 3 from --commit means fixes were committed
+# --- success for the caller, so branch on 0|3 (NEVER chain with `&&`).
+# The lint gate stays `lint-fmt` (treefmt) until parity is proven; #16
+# then swaps the gate to this lane.
+[group('codemod')]
+codemod-fmt-conformist:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  rc=0; conformist --commit || rc=$?
+  case "$rc" in 0|3) ;; *) exit "$rc" ;; esac
+  conformist check
+
 # Reinstall the system service from a fresh nix build.
 [group('operational')]
 install-local: build-nix

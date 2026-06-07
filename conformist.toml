@@ -1,0 +1,50 @@
+# conformist fmt+lint pilot (ssh-agent-mux#16, conformist#24/#25).
+#
+# Byte-parity mirror of the treefmt-nix-GENERATED treefmt.toml that drives
+# `just lint-fmt` / `nix fmt` — read from its /nix/store artifact, not from
+# flake.nix's treefmt options: same formatters, includes, and options.
+# Excludes: only CHANGELOG.md is this project's addition; the rest mirror
+# treefmt's built-in defaults, which conformist must declare explicitly.
+# If treefmt's defaults ever change, re-sync from the generated file.
+# Commands are bare names resolved from PATH (the devshell pins the same
+# nixpkgs packages treefmt uses; rustfmt comes from the rust-overlay
+# toolchain, honoring edition 2024). Keep the two in lock-step until #16
+# retires the treefmt lane.
+
+excludes = [
+  "CHANGELOG.md",
+  "*.lock",
+  "*.patch",
+  "package-lock.json",
+  "go.mod",
+  "go.sum",
+  ".gitattributes",
+  ".gitignore",
+  ".gitmodules",
+  ".hgignore",
+  ".svnignore",
+  "LICENSE",
+]
+
+[formatter.mdformat]
+command = "mdformat"
+includes = ["*.md"]
+
+[formatter.nixfmt]
+command = "nixfmt"
+includes = ["*.nix"]
+
+[formatter.rustfmt]
+command = "rustfmt"
+includes = ["*.rs"]
+options = ["--config", "skip_children=true", "--edition", "2024"]
+
+[formatter.shfmt]
+command = "shfmt"
+includes = ["*.sh", "*.bash", "*.envrc", "*.envrc.*"]
+options = ["-w", "-i", "2", "-s"]
+
+[formatter.taplo]
+command = "taplo"
+includes = ["*.toml"]
+options = ["format"]

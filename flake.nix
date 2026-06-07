@@ -21,6 +21,12 @@
     # tap-dancer (TAP wrapper used by `just test-rust`). Same rationale —
     # leave its nixpkgs on the fork.
     tap.url = "github:amarbel-llc/tap";
+    # conformist fmt+lint pilot (ssh-agent-mux#16): `--commit` fix commits,
+    # `--staged` lint-staged mode, `--trailer` (conformist#24/#25/#26).
+    # Pinned to the rev that shipped --staged. Same rationale as bats/tap:
+    # its igloo input is the load-bearing amarbel-llc nixpkgs fork (the Go
+    # builders only exist there) — take its inputs as-is, no follows.
+    conformist.url = "github:amarbel-llc/conformist/4edeb28944a7fd939d2ddd2b876c2cb2dc5ad075";
     # treefmt-nix drives `nix fmt` and the read-only `checks.formatting`
     # gate (see `just lint-fmt` / `just codemod-fmt-treefmt`).
     treefmt-nix = {
@@ -46,6 +52,7 @@
       rust-overlay,
       bats,
       tap,
+      conformist,
       treefmt-nix,
       home-manager,
     }:
@@ -264,6 +271,19 @@
             # directly, and the batman package alone does not put it on PATH.
             bats.packages.${system}.bats
             tap.packages.${system}.tap-dancer
+            # conformist pilot (ssh-agent-mux#16). conformist-bga is the
+            # plain input-addressed build; the default package is godyn
+            # (ca-derivations), which this host's nix doesn't enable.
+            conformist.packages.${system}.conformist-bga
+            # conformist resolves formatter binaries from PATH
+            # (conformist.toml uses bare command names). These are the
+            # same nixpkgs packages the treefmt eval pins, so check/fix
+            # stay byte-identical with the existing lint-fmt gate;
+            # rustfmt comes from the toolchain above.
+            pkgs.nixfmt
+            pkgs.shfmt
+            pkgs.taplo
+            pkgs.mdformat
           ];
 
           # bats-lane(7)/bats-testing(7) manpages for agents exploring the
