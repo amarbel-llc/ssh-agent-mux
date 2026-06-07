@@ -23,5 +23,8 @@ pub async fn run(config_res: Result<Config>, format: HealthFormat) -> Result<()>
         bail!("tap-ndjson output is not yet supported (pending upstream tap-dancer writer)");
     }
     let _ = config_res;
-    todo!("checks arrive in later tasks")
+    // Skeleton: each task in the plan replaces this with real checks. A
+    // bail (not todo!) so the committed default path errors instead of
+    // panicking with a raw backtrace.
+    bail!("health checks are not yet implemented (skeleton; checks arrive in later tasks)")
 }
