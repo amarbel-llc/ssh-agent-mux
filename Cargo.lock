@@ -1614,6 +1614,7 @@ dependencies = [
  "flexi_logger",
  "log",
  "serde",
+ "serde_json",
  "shellexpand",
  "ssh-agent-lib",
  "tap-dancer",
