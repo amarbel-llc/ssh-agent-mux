@@ -17,19 +17,27 @@ just test-bats      # bats integration tests only
 
 ## Testing
 
-### Bats sandbox (fence-based)
+### Bats: nix lane (authoritative) + host loop (iteration)
 
-Tests run through the `bats` wrapper from the `amarbel-llc/bats` flake input,
-which sandboxes each test command with `fence` (not seccomp/sandcastle). The
-fence config denies reads of credential dirs (`~/.ssh`, `~/.gnupg`, …) and all
-network egress, but does **not** block `socket(AF_UNIX, ...)`, so the mux's
-Unix-socket I/O and tokio's signal handlers work without any extra flag.
+`just test-bats` builds the nix-sandboxed lane (`nix build .#bats-default`,
+see bats-lane(7)): the suite runs hermetically against the nix-built binary
+inside the nix builder. This is the gate the pre-merge hook exercises. Tests
+resolve the binary via `$SSH_AGENT_MUX_BIN` (injected by the lane;
+common.bash falls back to PATH for host runs). The builder has no network
+and a scrubbed env — tests must not depend on host state (common.bash
+unsets `SSH_AUTH_SOCK` for exactly this reason). New `.bats` files must be
+git-tracked or the lane silently omits them.
 
-An older sandcastle-based wrapper required `--allow-unix-sockets`; that flag is
-**not** accepted by the current fence-based wrapper (it errors `Bad command line option`) and has been removed from `zz-tests_bats/justfile`. Wrapper flags
-worth knowing: `--no-sandbox` (bypass fence), `--allow-local-binding`,
-`--no-tempdir-cleanup`. Run `bats version` (positional) for wrapper/component
-versions.
+`just test-bats-local` keeps the fast host loop (`bats --jobs N` against
+`target/debug`) through the fence-sandboxing `bats` wrapper from the
+`amarbel-llc/bats` flake input. Fence denies credential-dir reads
+(`~/.ssh`, `~/.gnupg`, …) and network egress but allows
+`socket(AF_UNIX, ...)`. Host fence can be flaky on some machines (bridge
+init timeout); the nix lane is the fallback and the source of truth.
+Wrapper flags worth knowing: `--no-sandbox` (bypass fence),
+`--allow-local-binding`, `--no-tempdir-cleanup`. The pre-fence
+`--allow-unix-sockets` flag no longer exists (fatal `Bad command line
+option`). Run `bats version` (positional) for wrapper/component versions.
 
 ## Architecture
 
