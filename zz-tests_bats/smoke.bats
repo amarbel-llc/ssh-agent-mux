@@ -29,12 +29,16 @@ function validate_config_succeeds_without_config_file { # @test
 }
 
 function install_config_creates_default_config { # @test
+  # `config install` seeds the default upstream agent from SSH_AUTH_SOCK
+  # (common.bash unsets the host's; provide a deterministic fake).
+  export SSH_AUTH_SOCK="$BATS_TEST_TMPDIR/upstream.sock"
   run_ssh_agent_mux config install
   assert_success
   assert [ -f "$XDG_CONFIG_HOME/ssh-agent-mux/ssh-agent-mux.toml" ]
 }
 
 function validate_config_succeeds_after_install_config { # @test
+  export SSH_AUTH_SOCK="$BATS_TEST_TMPDIR/upstream.sock"
   run_ssh_agent_mux config install
   assert_success
 

@@ -29,8 +29,20 @@ build: build-nix build-rust
 test-rust:
   TMPDIR=/tmp nix develop --command tap-dancer cargo-test -skip-empty
 
+# Authoritative bats gate: runs the suite as a nix-sandboxed lane against
+# the nix-built binary (flake.nix `bats-default`, bats-lane(7)). This is
+# what the spinclass pre-merge hook exercises via the default recipe.
 [group('post-build')]
-test-bats: build-rust
+test-bats:
+  nix build .#bats-default --no-link --print-build-logs
+
+# Fast local iteration: host bats against the cargo debug build, mirroring
+# piggy's dual-coverage convention (piggy#117). NOTE: the host fence
+# sandbox is broken on some machines (fence bridge init timeout) --- if
+# this hangs, fall back to the nix lane (`just test-bats`) or bypass fence
+# with `bats --no-sandbox` inside zz-tests_bats.
+[group('post-build')]
+test-bats-local: build-rust
   PATH="{{justfile_directory()}}/{{dir_build}}/debug:$PATH" just zz-tests_bats/test
 
 # Faithfully evaluate the Home Manager module: builds a sample
