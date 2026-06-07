@@ -1,13 +1,15 @@
 //! Service-manager state probing for the `health` subcommand.
 //!
-//! Resolved once on the real host by [`probe`] and threaded into
+//! Resolved once on the real host by [`probe`] (async so the
+//! service-manager subprocess can be time-bounded) and threaded into
 //! `emit_checks` as plain data, so the buffer-backed unit tests in
 //! `health.rs` never depend on host service state.
 
 use std::path::PathBuf;
 
 /// Skip reason emitted when the service manager cannot be queried
-/// (sandbox/CI without a user service manager).
+/// (sandbox/CI without a user service manager, or a query that exceeded
+/// [`MANAGER_TIMEOUT`]).
 #[cfg(target_os = "linux")]
 pub(crate) const MANAGER_UNAVAILABLE: &str = "systemctl unavailable";
 #[cfg(target_os = "macos")]
@@ -40,13 +42,39 @@ pub(crate) struct ServiceProbe {
     pub(crate) state: Option<ServiceState>,
 }
 
-pub(crate) fn probe() -> ServiceProbe {
+pub(crate) async fn probe() -> ServiceProbe {
     let install = install_status();
     let state = match install {
-        InstallStatus::Installed(_) => query_service_state_host(),
+        InstallStatus::Installed(_) => query_service_state_host().await,
         _ => None,
     };
     ServiceProbe { install, state }
+}
+
+/// Hard deadline on service-manager subprocesses. `systemctl --user show`
+/// can hang indefinitely in exactly the environments a health tool
+/// diagnoses (stale DBUS_SESSION_BUS_ADDRESS, broken systemd stub in a
+/// container, crashed user session), and a hang would violate the
+/// `None ⇒ unavailable` contract of the query fns.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+const MANAGER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Run the service manager with [`MANAGER_TIMEOUT`] as a hard deadline.
+/// `None` on spawn failure or timeout — both fold into the existing
+/// "manager unavailable" skip path. `kill_on_drop` ensures a hung
+/// systemctl/launchctl is killed when the timeout drops the future, so it
+/// cannot outlive the health run.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+async fn manager_output(cmd: &str, args: &[&str]) -> Option<std::process::Output> {
+    let output = tokio::process::Command::new(cmd)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .kill_on_drop(true)
+        .output();
+    tokio::time::timeout(MANAGER_TIMEOUT, output)
+        .await
+        .ok()?
+        .ok()
 }
 
 fn install_status() -> InstallStatus {
@@ -67,8 +95,8 @@ fn unit_dest() -> color_eyre::eyre::Result<PathBuf> {
 }
 
 #[cfg(target_os = "linux")]
-fn query_service_state_host() -> Option<ServiceState> {
-    query_service_state(crate::service::SYSTEMD_UNIT_FILENAME)
+async fn query_service_state_host() -> Option<ServiceState> {
+    query_service_state(crate::service::SYSTEMD_UNIT_FILENAME).await
 }
 
 #[cfg(target_os = "linux")]
@@ -88,13 +116,15 @@ pub(crate) fn parse_systemctl_show(out: &str) -> ServiceState {
     }
 }
 
-/// `None` ⇒ systemctl unavailable (sandbox/CI) → caller skips the check.
+/// `None` ⇒ systemctl unavailable (sandbox/CI) or unresponsive (timed
+/// out) → caller skips the check.
 #[cfg(target_os = "linux")]
-pub(crate) fn query_service_state(unit: &str) -> Option<ServiceState> {
-    let out = std::process::Command::new("systemctl")
-        .args(["--user", "show", "-p", "ActiveState,MainPID", unit])
-        .output()
-        .ok()?;
+pub(crate) async fn query_service_state(unit: &str) -> Option<ServiceState> {
+    let out = manager_output(
+        "systemctl",
+        &["--user", "show", "-p", "ActiveState,MainPID", unit],
+    )
+    .await?;
     if !out.status.success() {
         return None;
     }
@@ -110,23 +140,53 @@ fn unit_dest() -> color_eyre::eyre::Result<PathBuf> {
     crate::service::plist_dest()
 }
 
-/// Exit-status-only probe: `launchctl list <label>` exits 0 iff the job is
-/// loaded in the current user's domain. No MainPID is extracted.
+/// `launchctl list <label>` exits 0 iff the job is *loaded* in the current
+/// user's domain — loaded ≠ running (a loaded-but-stopped job still exits
+/// 0). To distinguish, parse stdout: launchctl prints the job's property
+/// dict, which contains a `"PID" = <n>;` entry only while the job has a
+/// running process. We use `list <label>` rather than `print
+/// gui/$UID/<label>` because `list` requires no UID lookup and its
+/// exit-status/stdout contract is sufficient for this narrow probe.
 #[cfg(target_os = "macos")]
-fn query_service_state_host() -> Option<ServiceState> {
-    let out = std::process::Command::new("launchctl")
-        .args(["list", crate::service::SERVICE_LABEL])
-        .output()
-        .ok()?;
-    let active_state = if out.status.success() {
-        "active"
-    } else {
-        "inactive"
-    };
-    Some(ServiceState {
-        active_state: Some(active_state.to_string()),
+async fn query_service_state_host() -> Option<ServiceState> {
+    let out = manager_output("launchctl", &["list", crate::service::SERVICE_LABEL]).await?;
+    if !out.status.success() {
+        // Non-zero exit ⇒ label not loaded at all.
+        return Some(ServiceState {
+            active_state: Some("inactive".to_string()),
+            main_pid: None,
+        });
+    }
+    Some(parse_launchctl_list(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// Parse `launchctl list <label>` stdout (the job's property dict). A
+/// `"PID" = <n>;` entry is present iff the job has a running process →
+/// active with that pid; absent ⇒ the job is loaded but not running, which
+/// the active check must report honestly rather than as "active".
+///
+/// Pure fn on `&str` so it stays unit-testable on every platform; compiled
+/// under `test` everywhere, but only *called* from the macOS prober.
+#[cfg(any(target_os = "macos", test))]
+fn parse_launchctl_list(out: &str) -> ServiceState {
+    for line in out.lines() {
+        let Some(rest) = line.trim_start().strip_prefix("\"PID\"") else {
+            continue;
+        };
+        let Some(value) = rest.split('=').nth(1) else {
+            continue;
+        };
+        if let Ok(pid) = value.trim().trim_end_matches(';').trim_end().parse::<u32>() {
+            return ServiceState {
+                active_state: Some("active".to_string()),
+                main_pid: Some(pid),
+            };
+        }
+    }
+    ServiceState {
+        active_state: Some("loaded-not-running".to_string()),
         main_pid: None,
-    })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -139,12 +199,38 @@ fn unit_dest() -> color_eyre::eyre::Result<PathBuf> {
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn query_service_state_host() -> Option<ServiceState> {
+async fn query_service_state_host() -> Option<ServiceState> {
     None
 }
 
+// Platform-neutral tests: parse_launchctl_list is a pure fn on &str and is
+// compiled under `test` on every platform, so these run on Linux hosts too.
+#[cfg(test)]
+mod launchctl_tests {
+    use super::*;
+
+    #[test]
+    fn running_job_yields_active_with_pid() {
+        let out = "{\n\t\"LimitLoadToSessionType\" = \"Aqua\";\n\t\"Label\" = \"net.ross-williams.ssh-agent-mux\";\n\t\"OnDemand\" = false;\n\t\"LastExitStatus\" = 0;\n\t\"PID\" = 16891;\n\t\"Program\" = \"/usr/local/bin/ssh-agent-mux\";\n};\n";
+        let st = parse_launchctl_list(out);
+        assert_eq!(st.active_state.as_deref(), Some("active"));
+        assert_eq!(st.main_pid, Some(16891));
+    }
+
+    #[test]
+    fn stopped_job_without_pid_is_loaded_not_running() {
+        let out = "{\n\t\"Label\" = \"net.ross-williams.ssh-agent-mux\";\n\t\"OnDemand\" = false;\n\t\"LastExitStatus\" = 1;\n};\n";
+        let st = parse_launchctl_list(out);
+        assert_eq!(st.active_state.as_deref(), Some("loaded-not-running"));
+        assert_eq!(st.main_pid, None);
+    }
+}
+
+// Gated to Linux only because parse_systemctl_show itself is Linux-only
+// cfg'd code; don't copy this gate for platform-neutral parsing code (see
+// launchctl_tests above).
 #[cfg(all(test, target_os = "linux"))]
-mod tests {
+mod systemd_tests {
     use super::*;
 
     #[test]

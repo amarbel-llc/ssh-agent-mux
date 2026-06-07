@@ -109,8 +109,8 @@ fn emit_service_active(r: &mut Reporter, service: &ServiceProbe) -> io::Result<O
         return Ok(None);
     };
     if state.active_state.as_deref() == Some("active") {
-        // MainPID can legitimately be absent (e.g. the launchd probe only
-        // reports loaded-ness); emit the diagnostic only when known.
+        // MainPID can legitimately be absent (systemd reports MainPID=0
+        // for some unit shapes); emit the diagnostic only when known.
         match state.main_pid {
             Some(pid) => r.ok_diag("service active", &[("main-pid", json!(pid))])?,
             None => r.ok("service active")?,
@@ -133,7 +133,7 @@ pub async fn run(config_res: Result<Config>, format: HealthFormat) -> Result<()>
     let is_tty = stdout.is_terminal();
     let mut out = stdout.lock();
 
-    let service = service_state::probe();
+    let service = service_state::probe().await;
     let mut reporter = reporter_for(format, &mut out, is_tty)?;
     emit_checks(&mut reporter, &config_res, &service)?;
     reporter.finish()?;

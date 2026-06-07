@@ -36,7 +36,7 @@ features = ["derive"]
 
 [dependencies.tokio]
 version = "1.45.0"
-features = ["rt", "macros", "signal", "sync", "net", "time"]
+features = ["rt", "macros", "signal", "sync", "net", "time", "process"]
 
 [dev-dependencies]
 duct = "1.0.0"
