@@ -147,18 +147,15 @@ fn emit_listener_check(r: &mut Reporter, check: &ListenerCheck) -> io::Result<()
             r.ok_diag(DESC, &[("main-pid", json!(main_pid))])
         }
         #[cfg(any(target_os = "linux", test))]
-        ListenerCheck::HeldByOther {
-            holder_pid,
-            holder_cgroup,
-        } => {
+        ListenerCheck::HeldByOther { holder } => {
             // Best-effort holder facts: omit pairs that could not be
             // resolved rather than emitting nulls.
             let mut diags: Vec<(&str, serde_json::Value)> = Vec::new();
-            if let Some(pid) = holder_pid {
+            if let Some((pid, cgroup)) = holder {
                 diags.push(("holder-pid", json!(pid)));
-            }
-            if let Some(cgroup) = holder_cgroup {
-                diags.push(("holder-cgroup", json!(cgroup)));
+                if let Some(cgroup) = cgroup {
+                    diags.push(("holder-cgroup", json!(cgroup)));
+                }
             }
             r.not_ok_diag(DESC, &diags)
         }
@@ -177,7 +174,7 @@ pub async fn run(config_res: Result<Config>, format: HealthFormat) -> Result<()>
             .as_ref()
             .ok()
             .map(|config| config.listen_path.as_path()),
-        service.active_main_pid(),
+        &service,
     );
     let mut reporter = reporter_for(format, &mut out, is_tty)?;
     emit_checks(&mut reporter, &config_res, &service, &listener)?;
@@ -231,7 +228,7 @@ socket-path = "/tmp/does-not-exist.sock"
     /// Deterministic listener default matching `probe_not_installed`: an
     /// inactive service yields nothing to compare the holder against.
     fn listener_not_active() -> ListenerCheck {
-        ListenerCheck::Skipped("service not active".to_string())
+        ListenerCheck::Skipped(socket_holder::SKIP_NOT_ACTIVE.to_string())
     }
 
     fn emit_full(
@@ -402,8 +399,7 @@ socket-path = "/tmp/does-not-exist.sock"
     #[test]
     fn listener_held_by_foreign_process_fails_with_holder_facts() {
         let (out, has_failures) = emit_listener(&ListenerCheck::HeldByOther {
-            holder_pid: Some(4242),
-            holder_cgroup: Some("0::/user.slice/foreign.service".to_string()),
+            holder: Some((4242, Some("0::/user.slice/foreign.service".to_string()))),
         });
         assert!(has_failures);
         assert!(
@@ -418,11 +414,22 @@ socket-path = "/tmp/does-not-exist.sock"
     }
 
     #[test]
-    fn listener_unresolved_holder_omits_diags() {
+    fn listener_holder_without_cgroup_emits_pid_only() {
         let (out, has_failures) = emit_listener(&ListenerCheck::HeldByOther {
-            holder_pid: None,
-            holder_cgroup: None,
+            holder: Some((4242, None)),
         });
+        assert!(has_failures);
+        assert!(
+            out.contains("not ok 4 - listen socket held by service"),
+            "got: {out}"
+        );
+        assert!(out.contains("holder-pid: 4242"), "got: {out}");
+        assert!(!out.contains("holder-cgroup"), "got: {out}");
+    }
+
+    #[test]
+    fn listener_unresolved_holder_omits_diags() {
+        let (out, has_failures) = emit_listener(&ListenerCheck::HeldByOther { holder: None });
         assert!(has_failures);
         assert!(
             out.contains("not ok 4 - listen socket held by service"),

@@ -43,19 +43,28 @@ pub(crate) struct ServiceProbe {
 }
 
 impl ServiceProbe {
-    /// MainPID of the running service: `Some` only when the unit is
-    /// installed, the manager answered, and ActiveState=active — the same
-    /// conditions under which `emit_service_active` reports "ok". Consumed
-    /// by the listener-identity probe (`socket_holder::probe`).
+    /// True when the unit is installed, the manager answered, and
+    /// ActiveState=active — the same conditions under which
+    /// `emit_service_active` reports "ok". Lets the listener-identity
+    /// probe (`socket_holder::probe`) tell "service not running" apart
+    /// from "running but no MainPID" when [`Self::active_main_pid`] is
+    /// `None`.
+    pub(crate) fn is_active(&self) -> bool {
+        matches!(self.install, InstallStatus::Installed(_))
+            && self
+                .state
+                .as_ref()
+                .is_some_and(|state| state.active_state.as_deref() == Some("active"))
+    }
+
+    /// MainPID of the running service: `Some` only when [`Self::is_active`]
+    /// and the manager reported a nonzero MainPID. Consumed by the
+    /// listener-identity probe (`socket_holder::probe`).
     pub(crate) fn active_main_pid(&self) -> Option<u32> {
-        if !matches!(self.install, InstallStatus::Installed(_)) {
+        if !self.is_active() {
             return None;
         }
-        let state = self.state.as_ref()?;
-        if state.active_state.as_deref() != Some("active") {
-            return None;
-        }
-        state.main_pid
+        self.state.as_ref()?.main_pid
     }
 }
 

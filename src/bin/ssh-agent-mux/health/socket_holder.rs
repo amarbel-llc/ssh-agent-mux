@@ -16,6 +16,23 @@
 
 use std::path::Path;
 
+use super::service_state::ServiceProbe;
+
+/// Skip reason when the service is not running at all (not installed,
+/// manager unavailable, or inactive) — there is no holder to compare.
+pub(crate) const SKIP_NOT_ACTIVE: &str = "service not active";
+
+/// Skip reason when the service *is* active but the manager reported no
+/// main pid (`MainPID=0` unit shapes: oneshot, notify without a pid) —
+/// distinct from [`SKIP_NOT_ACTIVE`] so the skip cannot contradict an
+/// "ok - service active" point earlier in the same document.
+pub(crate) const SKIP_NO_MAIN_PID: &str = "service main pid unavailable";
+
+/// Skip reason on platforms without /proc (see module docs: an lsof-based
+/// variant could lift this).
+#[cfg(not(target_os = "linux"))]
+const NOT_IMPLEMENTED: &str = "not implemented on macos";
+
 /// Verdict for the "listen socket held by service" point. Resolved once on
 /// the live host by [`probe`] and threaded into `emit_checks` as plain
 /// data, so the buffer-backed unit tests in `health.rs` never read /proc.
@@ -30,21 +47,31 @@ pub(crate) enum ListenerCheck {
     #[cfg(any(target_os = "linux", test))]
     HeldByService { main_pid: u32 },
     /// Bound, but by some other process — the foreign-holder failure mode.
-    /// Holder facts are best-effort; `None` fields are omitted from diags.
+    /// Holder facts are best-effort: `holder` is `None` when the pid could
+    /// not be resolved; the cgroup (only resolvable with a pid in hand) may
+    /// still be `None` inside. Unresolved facts are omitted from diags.
     #[cfg(any(target_os = "linux", test))]
     HeldByOther {
-        holder_pid: Option<u32>,
-        holder_cgroup: Option<String>,
+        holder: Option<(u32, Option<String>)>,
     },
 }
 
-/// Resolve the listener-identity facts on the live host. `main_pid` is the
-/// service's running MainPID ([`super::ServiceProbe::active_main_pid`]);
-/// `listen_path` is `None` only when the config failed to load, in which
-/// case `emit_checks` bails out before this verdict is ever emitted.
-pub(crate) fn probe(listen_path: Option<&Path>, main_pid: Option<u32>) -> ListenerCheck {
-    let (Some(listen_path), Some(main_pid)) = (listen_path, main_pid) else {
-        return ListenerCheck::Skipped("service not active".to_string());
+/// Resolve the listener-identity facts on the live host, consuming the
+/// service-manager facts from `service` (see
+/// [`ServiceProbe::active_main_pid`]). `listen_path` is `None` only when
+/// the config failed to load, in which case `emit_checks` bails out before
+/// this verdict is ever emitted.
+pub(crate) fn probe(listen_path: Option<&Path>, service: &ServiceProbe) -> ListenerCheck {
+    let Some(listen_path) = listen_path else {
+        // Dead in practice (a config error bails the document before this
+        // verdict is rendered); honest reason in case that ever changes.
+        return ListenerCheck::Skipped("config not loaded".to_string());
+    };
+    if !service.is_active() {
+        return ListenerCheck::Skipped(SKIP_NOT_ACTIVE.to_string());
+    }
+    let Some(main_pid) = service.active_main_pid() else {
+        return ListenerCheck::Skipped(SKIP_NO_MAIN_PID.to_string());
     };
     probe_platform(listen_path, main_pid)
 }
@@ -63,18 +90,15 @@ fn probe_platform(listen_path: &Path, main_pid: u32) -> ListenerCheck {
     if pid_holds_socket_inode(main_pid, inode) {
         return ListenerCheck::HeldByService { main_pid };
     }
-    let holder_pid = find_socket_holder(inode);
-    ListenerCheck::HeldByOther {
-        holder_cgroup: holder_pid.and_then(pid_cgroup),
-        holder_pid,
-    }
+    let holder = find_socket_holder(inode).map(|pid| (pid, pid_cgroup(pid)));
+    ListenerCheck::HeldByOther { holder }
 }
 
 #[cfg(not(target_os = "linux"))]
 fn probe_platform(_listen_path: &Path, _main_pid: u32) -> ListenerCheck {
     // No /proc here: even with launchd's main pid in hand, mapping the
     // bound socket path to its holder needs an lsof-based variant.
-    ListenerCheck::Skipped("not implemented on macos".to_string())
+    ListenerCheck::Skipped(NOT_IMPLEMENTED.to_string())
 }
 
 /// Parse /proc/net/unix content; return the inode of the listening socket
@@ -180,14 +204,40 @@ Num       RefCount Protocol Flags    Type St Inode Path
         );
     }
 
-    /// Pure paths through `probe`: a missing main pid (service inactive,
-    /// manager unavailable, MainPID=0) skips without touching /proc.
-    #[test]
-    fn probe_without_main_pid_skips_as_not_active() {
-        let check = probe(Some(std::path::Path::new("/tmp/x.sock")), None);
+    use super::super::service_state::{InstallStatus, ServiceState};
+
+    fn skip_reason(check: ListenerCheck) -> String {
         let ListenerCheck::Skipped(reason) = check else {
             panic!("expected Skipped");
         };
-        assert_eq!(reason, "service not active");
+        reason
+    }
+
+    /// Pure paths through `probe`: a service that is not running (here:
+    /// not even installed) skips without touching /proc.
+    #[test]
+    fn probe_inactive_service_skips_as_not_active() {
+        let service = ServiceProbe {
+            install: InstallStatus::NotInstalled,
+            state: None,
+        };
+        let check = probe(Some(std::path::Path::new("/tmp/x.sock")), &service);
+        assert_eq!(skip_reason(check), "service not active");
+    }
+
+    /// Active-but-MainPID=0 unit shapes (oneshot, notify without a pid)
+    /// must not skip as "service not active" — that would contradict the
+    /// "ok - service active" point emitted just before.
+    #[test]
+    fn probe_active_without_main_pid_skips_with_distinct_reason() {
+        let service = ServiceProbe {
+            install: InstallStatus::Installed("/home/u/.config/systemd/user/mux.service".into()),
+            state: Some(ServiceState {
+                active_state: Some("active".to_string()),
+                main_pid: None,
+            }),
+        };
+        let check = probe(Some(std::path::Path::new("/tmp/x.sock")), &service);
+        assert_eq!(skip_reason(check), "service main pid unavailable");
     }
 }
