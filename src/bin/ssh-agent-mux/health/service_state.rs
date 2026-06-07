@@ -42,6 +42,23 @@ pub(crate) struct ServiceProbe {
     pub(crate) state: Option<ServiceState>,
 }
 
+impl ServiceProbe {
+    /// MainPID of the running service: `Some` only when the unit is
+    /// installed, the manager answered, and ActiveState=active — the same
+    /// conditions under which `emit_service_active` reports "ok". Consumed
+    /// by the listener-identity probe (`socket_holder::probe`).
+    pub(crate) fn active_main_pid(&self) -> Option<u32> {
+        if !matches!(self.install, InstallStatus::Installed(_)) {
+            return None;
+        }
+        let state = self.state.as_ref()?;
+        if state.active_state.as_deref() != Some("active") {
+            return None;
+        }
+        state.main_pid
+    }
+}
+
 pub(crate) async fn probe() -> ServiceProbe {
     let install = install_status();
     let state = match install {
