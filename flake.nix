@@ -239,6 +239,15 @@
             bats.packages.${system}.bats
             tap.packages.${system}.tap-dancer
           ];
+
+          # bats-lane(7)/bats-testing(7) manpages for agents exploring the
+          # test harness. The batman-manpages package ships share/man only
+          # (no bin/), so man(1)'s PATH-based inference never finds it ---
+          # export it on MANPATH explicitly. The trailing colon keeps the
+          # system man path reachable.
+          shellHook = ''
+            export MANPATH="${bats.packages.${system}.batman-manpages}/share/man''${MANPATH:+:$MANPATH}:"
+          '';
         };
       }
     );
