@@ -70,7 +70,10 @@ fn emit_checks(r: &mut Reporter, config_res: &Result<Config>) -> io::Result<()> 
     r.skip("listen socket held by service", "not implemented")?;
     r.skip("listen socket answers", "not implemented")?;
     for agent in &config.agents {
-        r.skip(&format!("upstream {} answers", agent.name), "not implemented")?;
+        r.skip(
+            &format!("upstream {} answers", agent.name),
+            "not implemented",
+        )?;
     }
     Ok(())
 }
@@ -133,7 +136,10 @@ socket-path = "/tmp/does-not-exist.sock"
         // regardless of LC_ALL/LC_NUMERIC/LANG in the test environment.
         assert!(out.starts_with("TAP version 14\n1..6\n"), "got: {out}");
         assert!(out.contains("ok 1 - config valid"), "got: {out}");
-        assert!(out.contains("path: \"/tmp/test-config.toml\""), "got: {out}");
+        assert!(
+            out.contains("path: \"/tmp/test-config.toml\""),
+            "got: {out}"
+        );
         assert!(out.contains("agents: 1"), "got: {out}");
         assert!(
             out.contains("ok 6 - upstream fake answers # SKIP not implemented"),
@@ -149,7 +155,10 @@ socket-path = "/tmp/does-not-exist.sock"
         assert!(out.contains("1..1"), "got: {out}");
         assert!(out.contains("not ok 1 - config valid"), "got: {out}");
         assert!(out.contains("not-a-real-key"), "got: {out}");
-        assert!(out.contains("Bail out! configuration unusable"), "got: {out}");
+        assert!(
+            out.contains("Bail out! configuration unusable"),
+            "got: {out}"
+        );
     }
 
     #[test]
@@ -179,8 +188,7 @@ socket-path = "/tmp/does-not-exist.sock"
         let (out, has_failures) = emit(HealthFormat::Ndjson, false, &config_res);
         assert!(has_failures);
         assert!(out.contains("\"type\":\"bailout\""), "got: {out}");
-        let summary: serde_json::Value =
-            serde_json::from_str(out.lines().last().unwrap()).unwrap();
+        let summary: serde_json::Value = serde_json::from_str(out.lines().last().unwrap()).unwrap();
         assert_eq!(summary["type"], "summary");
         assert_eq!(summary["failed"], 1);
         assert_eq!(summary["bailed"], true);
