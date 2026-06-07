@@ -891,5 +891,5 @@ ______________________________________________________________________
 
 ## Follow-ups (not in this plan)
 
-- Wire `--format ndjson` + tty auto-detection once `tap/clear-cherry` lands the upstream Rust NDJSON writer (bump git pin + `NdjsonSink` impl + bats lane). File a GitHub issue when this plan completes and add it to the session task list.
+- ~~Wire `--format ndjson` + tty auto-detection once `tap/clear-cherry` lands the upstream Rust NDJSON writer.~~ Obsolete: v0.1.12 shipped mid-plan and the wiring was folded into Task 5 (see the Design doc amendment above). No follow-up issue needed.
 - Upstream wishlist already relayed: per-test `{number, description, ok, skip directive+reason, diagnostic map}`, plan-ahead, summary, common writer trait.
