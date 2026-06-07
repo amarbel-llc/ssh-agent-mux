@@ -5,13 +5,13 @@ use color_eyre::eyre::{Result, WrapErr, bail, eyre};
 
 use crate::cli::Config;
 
-const SERVICE_LABEL: &str = concat!("net.ross-williams.", env!("CARGO_PKG_NAME"));
+pub(crate) const SERVICE_LABEL: &str = concat!("net.ross-williams.", env!("CARGO_PKG_NAME"));
 
 #[cfg(target_os = "macos")]
 const PLIST_FILENAME: &str = concat!("net.ross-williams.", env!("CARGO_PKG_NAME"), ".plist");
 
 #[cfg(target_os = "linux")]
-const SYSTEMD_UNIT_FILENAME: &str = concat!(env!("CARGO_PKG_NAME"), ".service");
+pub(crate) const SYSTEMD_UNIT_FILENAME: &str = concat!(env!("CARGO_PKG_NAME"), ".service");
 
 #[derive(Subcommand, Clone, Copy)]
 pub enum Command {
@@ -125,7 +125,7 @@ fn plist_source() -> Result<PathBuf> {
 }
 
 #[cfg(target_os = "macos")]
-fn plist_dest() -> Result<PathBuf> {
+pub(crate) fn plist_dest() -> Result<PathBuf> {
     Ok(home_dir()?
         .join("Library/LaunchAgents")
         .join(PLIST_FILENAME))
@@ -227,7 +227,7 @@ fn systemd_unit_source() -> Result<PathBuf> {
 }
 
 #[cfg(target_os = "linux")]
-fn systemd_unit_dest() -> Result<PathBuf> {
+pub(crate) fn systemd_unit_dest() -> Result<PathBuf> {
     let config_dir = env::var("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| home_dir().expect("HOME is not set").join(".config"));

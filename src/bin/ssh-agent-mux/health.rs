@@ -11,6 +11,10 @@ use tap_dancer::{NdjsonWriter, Reporter, TapWriterBuilder};
 
 use crate::cli::Config;
 
+mod service_state;
+
+use service_state::{InstallStatus, ServiceProbe};
+
 #[derive(ValueEnum, Clone, Copy, PartialEq, Eq)]
 pub enum HealthFormat {
     Auto,
@@ -42,9 +46,14 @@ fn reporter_for(format: HealthFormat, w: &mut dyn Write, is_tty: bool) -> io::Re
 }
 
 /// Emit every health check as a test point. Later plan tasks replace the
-/// `skip(..., "not implemented")` placeholders with real probes; the
-/// plan count and descriptions are already final.
-fn emit_checks(r: &mut Reporter, config_res: &Result<Config>) -> io::Result<()> {
+/// remaining `skip(..., "not implemented")` placeholders with real probes;
+/// the plan count and descriptions are already final. Host facts arrive
+/// pre-resolved in `service` so unit tests stay deterministic.
+fn emit_checks(
+    r: &mut Reporter,
+    config_res: &Result<Config>,
+    service: &ServiceProbe,
+) -> io::Result<()> {
     let config = match config_res {
         Err(e) => {
             // Nothing else is checkable without a config: fail the one
@@ -65,8 +74,18 @@ fn emit_checks(r: &mut Reporter, config_res: &Result<Config>) -> io::Result<()> 
             ("agents", json!(config.agents.len())),
         ],
     )?;
-    r.skip("service installed", "not implemented")?;
-    r.skip("service active", "not implemented")?;
+    match &service.install {
+        InstallStatus::Installed(unit) => r.ok_diag(
+            "service installed",
+            &[("unit", json!(unit.display().to_string()))],
+        )?,
+        InstallStatus::NotInstalled => r.skip("service installed", "service not installed")?,
+        InstallStatus::Unknown(reason) => r.skip("service installed", reason)?,
+    };
+
+    // Task 7's "listen socket held by service" check will consume this pid.
+    let _main_pid = emit_service_active(r, service)?;
+
     r.skip("listen socket held by service", "not implemented")?;
     r.skip("listen socket answers", "not implemented")?;
     for agent in &config.agents {
@@ -78,13 +97,45 @@ fn emit_checks(r: &mut Reporter, config_res: &Result<Config>) -> io::Result<()> 
     Ok(())
 }
 
+/// Emit the "service active" point. Returns the service's MainPID when the
+/// unit is active, for downstream checks (listener identity) to consume.
+fn emit_service_active(r: &mut Reporter, service: &ServiceProbe) -> io::Result<Option<u32>> {
+    if !matches!(service.install, InstallStatus::Installed(_)) {
+        r.skip("service active", "service not installed")?;
+        return Ok(None);
+    }
+    let Some(state) = &service.state else {
+        r.skip("service active", service_state::MANAGER_UNAVAILABLE)?;
+        return Ok(None);
+    };
+    if state.active_state.as_deref() == Some("active") {
+        // MainPID can legitimately be absent (e.g. the launchd probe only
+        // reports loaded-ness); emit the diagnostic only when known.
+        match state.main_pid {
+            Some(pid) => r.ok_diag("service active", &[("main-pid", json!(pid))])?,
+            None => r.ok("service active")?,
+        };
+        Ok(state.main_pid)
+    } else {
+        r.not_ok_diag(
+            "service active",
+            &[(
+                "active-state",
+                json!(state.active_state.as_deref().unwrap_or("unknown")),
+            )],
+        )?;
+        Ok(None)
+    }
+}
+
 pub async fn run(config_res: Result<Config>, format: HealthFormat) -> Result<()> {
     let stdout = io::stdout();
     let is_tty = stdout.is_terminal();
     let mut out = stdout.lock();
 
+    let service = service_state::probe();
     let mut reporter = reporter_for(format, &mut out, is_tty)?;
-    emit_checks(&mut reporter, &config_res)?;
+    emit_checks(&mut reporter, &config_res, &service)?;
     reporter.finish()?;
     let has_failures = reporter.has_failures();
     drop(reporter);
@@ -116,14 +167,39 @@ socket-path = "/tmp/does-not-exist.sock"
         config
     }
 
-    fn emit(format: HealthFormat, is_tty: bool, config_res: &Result<Config>) -> (String, bool) {
+    /// Deterministic host-independent default: service not installed →
+    /// both service checks skip, matching the sandboxed bats lane.
+    fn probe_not_installed() -> ServiceProbe {
+        ServiceProbe {
+            install: InstallStatus::NotInstalled,
+            state: None,
+        }
+    }
+
+    fn probe_installed(state: Option<service_state::ServiceState>) -> ServiceProbe {
+        ServiceProbe {
+            install: InstallStatus::Installed("/home/u/.config/systemd/user/mux.service".into()),
+            state,
+        }
+    }
+
+    fn emit_with_probe(
+        format: HealthFormat,
+        is_tty: bool,
+        config_res: &Result<Config>,
+        service: &ServiceProbe,
+    ) -> (String, bool) {
         let mut buf = Vec::new();
         let mut reporter = reporter_for(format, &mut buf, is_tty).unwrap();
-        emit_checks(&mut reporter, config_res).unwrap();
+        emit_checks(&mut reporter, config_res, service).unwrap();
         reporter.finish().unwrap();
         let has_failures = reporter.has_failures();
         drop(reporter);
         (String::from_utf8(buf).unwrap(), has_failures)
+    }
+
+    fn emit(format: HealthFormat, is_tty: bool, config_res: &Result<Config>) -> (String, bool) {
+        emit_with_probe(format, is_tty, config_res, &probe_not_installed())
     }
 
     #[test]
@@ -206,5 +282,80 @@ socket-path = "/tmp/does-not-exist.sock"
         let config_res = Ok(config_with_one_agent());
         let (out, _) = emit(HealthFormat::Auto, true, &config_res);
         assert!(out.starts_with("TAP version 14\n"), "got: {out}");
+    }
+
+    #[test]
+    fn service_not_installed_skips_both_service_checks() {
+        let config_res = Ok(config_with_one_agent());
+        let (out, has_failures) = emit(HealthFormat::Tap, false, &config_res);
+        assert!(!has_failures);
+        assert!(
+            out.contains("ok 2 - service installed # SKIP service not installed"),
+            "got: {out}"
+        );
+        assert!(
+            out.contains("ok 3 - service active # SKIP service not installed"),
+            "got: {out}"
+        );
+    }
+
+    #[test]
+    fn service_installed_and_active_emits_unit_and_pid() {
+        let config_res = Ok(config_with_one_agent());
+        let probe = probe_installed(Some(service_state::ServiceState {
+            active_state: Some("active".into()),
+            main_pid: Some(16891),
+        }));
+        let (out, has_failures) = emit_with_probe(HealthFormat::Tap, false, &config_res, &probe);
+        assert!(!has_failures);
+        assert!(out.contains("ok 2 - service installed"), "got: {out}");
+        assert!(
+            out.contains("unit: \"/home/u/.config/systemd/user/mux.service\""),
+            "got: {out}"
+        );
+        assert!(out.contains("ok 3 - service active"), "got: {out}");
+        assert!(out.contains("main-pid: 16891"), "got: {out}");
+    }
+
+    #[test]
+    fn service_active_without_pid_is_still_ok() {
+        let config_res = Ok(config_with_one_agent());
+        let probe = probe_installed(Some(service_state::ServiceState {
+            active_state: Some("active".into()),
+            main_pid: None,
+        }));
+        let (out, has_failures) = emit_with_probe(HealthFormat::Tap, false, &config_res, &probe);
+        assert!(!has_failures);
+        assert!(out.contains("ok 3 - service active"), "got: {out}");
+        assert!(!out.contains("main-pid"), "got: {out}");
+    }
+
+    #[test]
+    fn service_manager_unavailable_skips_active_check() {
+        let config_res = Ok(config_with_one_agent());
+        let probe = probe_installed(None);
+        let (out, has_failures) = emit_with_probe(HealthFormat::Tap, false, &config_res, &probe);
+        assert!(!has_failures);
+        assert!(out.contains("ok 2 - service installed"), "got: {out}");
+        assert!(
+            out.contains(&format!(
+                "ok 3 - service active # SKIP {}",
+                service_state::MANAGER_UNAVAILABLE
+            )),
+            "got: {out}"
+        );
+    }
+
+    #[test]
+    fn service_inactive_fails_active_check() {
+        let config_res = Ok(config_with_one_agent());
+        let probe = probe_installed(Some(service_state::ServiceState {
+            active_state: Some("failed".into()),
+            main_pid: None,
+        }));
+        let (out, has_failures) = emit_with_probe(HealthFormat::Tap, false, &config_res, &probe);
+        assert!(has_failures);
+        assert!(out.contains("not ok 3 - service active"), "got: {out}");
+        assert!(out.contains("active-state: \"failed\""), "got: {out}");
     }
 }
