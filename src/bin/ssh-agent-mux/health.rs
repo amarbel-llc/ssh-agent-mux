@@ -25,18 +25,16 @@ pub enum HealthFormat {
 const STATIC_CHECKS: usize = 5;
 
 /// Construct the format-dispatching reporter. `Auto` follows tty-ness
-/// (TAP text for humans, ndjson for pipes); `Tap`/`Ndjson` force the
-/// format. TapWriterBuilder::auto derives color from NO_COLOR only (the
-/// crate never sniffs fds), so forced-TAP output bound for a pipe gets
-/// color switched off here to stay SGR-free and machine-greppable.
+/// (TAP text for humans, ndjson for pipes) and keeps the crate's
+/// locale/NO_COLOR handling for the human-facing tty case. Forced `Tap`
+/// is built with TapWriterBuilder::new — no locale pragma, no
+/// locale-formatted numbers, color only on a tty — so piped output
+/// stays SGR-free and machine-greppable regardless of LC_ALL/LANG.
 fn reporter_for(format: HealthFormat, w: &mut dyn Write, is_tty: bool) -> io::Result<Reporter<'_>> {
     match format {
         HealthFormat::Auto => Reporter::auto(w, is_tty),
         HealthFormat::Tap => {
-            let mut builder = TapWriterBuilder::auto(w);
-            if !is_tty {
-                builder = builder.color(false);
-            }
+            let builder = TapWriterBuilder::new(w).color(is_tty);
             Ok(Reporter::Tap(builder.build()?))
         }
         HealthFormat::Ndjson => Ok(Reporter::Ndjson(NdjsonWriter::new(w))),
@@ -130,8 +128,10 @@ socket-path = "/tmp/does-not-exist.sock"
         let config_res = Ok(config_with_one_agent());
         let (out, has_failures) = emit(HealthFormat::Tap, false, &config_res);
         assert!(!has_failures);
-        assert!(out.starts_with("TAP version 14\n"), "got: {out}");
-        assert!(out.contains("1..6"), "got: {out}");
+        // Forced tap uses TapWriterBuilder::new (no locale): the plan must
+        // directly follow the version line with no `pragma` line between,
+        // regardless of LC_ALL/LC_NUMERIC/LANG in the test environment.
+        assert!(out.starts_with("TAP version 14\n1..6\n"), "got: {out}");
         assert!(out.contains("ok 1 - config valid"), "got: {out}");
         assert!(out.contains("path: \"/tmp/test-config.toml\""), "got: {out}");
         assert!(out.contains("agents: 1"), "got: {out}");
@@ -169,8 +169,8 @@ socket-path = "/tmp/does-not-exist.sock"
         assert_eq!(summary["passed"], 1);
         assert_eq!(summary["skipped"], 5);
         assert_eq!(summary["failed"], 0);
-        // plan + 6 tests + summary
-        assert_eq!(lines.len(), 8);
+        // plan + (STATIC_CHECKS + 1 agent) tests + summary
+        assert_eq!(lines.len(), 1 + (STATIC_CHECKS + 1) + 1);
     }
 
     #[test]

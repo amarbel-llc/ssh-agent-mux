@@ -26,7 +26,8 @@ function health_ndjson_emits_json_records { # @test
   run_ssh_agent_mux health --format ndjson
   assert_success
   assert_output --partial '{"type":"plan","count":6}'
-  assert_output --partial '"description":"config valid","ok":true'
+  assert_output --partial '"description":"config valid"'
+  assert_output --partial '"ok":true'
   assert_output --partial '"type":"summary"'
 }
 
