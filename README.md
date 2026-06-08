@@ -135,17 +135,8 @@ ok 1 - config valid
   agents: 2
   ...
 ok 2 - service installed
-  ---
-  unit: "/home/you/.config/systemd/user/ssh-agent-mux.service"
-  ...
 ok 3 - service active
-  ---
-  main-pid: 16891
-  ...
 ok 4 - listen socket held by service
-  ---
-  main-pid: 16891
-  ...
 ok 5 - listen socket answers
   ---
   keys: 3
@@ -160,6 +151,9 @@ ok 7 - upstream yubikey answers
   ...
 ```
 
+(The service checks carry diagnostic blocks too --- unit path, main pid ---
+elided here for brevity.)
+
 The checks, in order:
 
 1. `config valid` --- the configuration parses and validates. On failure the
@@ -173,17 +167,7 @@ The checks, in order:
 
 1. `listen socket held by service` --- the configured listen socket is bound
    by the service's own process rather than a foreign one (Linux only, via
-   `/proc`; skipped on macOS). When some other process holds the socket ---
-   the classic cause of "service is green but `ssh` sees no keys" --- the
-   failure names it:
-
-   ```
-   not ok 4 - listen socket held by service
-     ---
-     holder-pid: 4242
-     holder-cgroup: "0::/user.slice/some-other-agent.service"
-     ...
-   ```
+   `/proc`; skipped on macOS).
 
 1. `listen socket answers` --- the mux's own socket answers an SSH agent
    protocol request.
@@ -191,22 +175,31 @@ The checks, in order:
 1. `upstream <name> answers` --- one check per configured agent, in
    configuration order; agents with `enabled = false` are skipped.
 
+When some other process holds the listen socket --- the classic cause of
+"service is green but `ssh` sees no keys" --- the held-by-service failure
+names it:
+
+```
+not ok 4 - listen socket held by service
+  ---
+  holder-pid: 4242
+  holder-cgroup: "0::/user.slice/some-other-agent.service"
+  ...
+```
+
 Key counts reported by the protocol checks are diagnostics only: an answering
 agent with zero keys still passes. Each protocol probe is bounded by the
 `agent-timeout` configuration setting (seconds, default 5).
 
-Checks that cannot run are reported as honest TAP skips, never failures: a
+Checks that cannot run are reported as TAP skips, not failures: a
 not-installed service skips the dependent service checks, an unavailable
 service manager skips as `# SKIP systemctl unavailable`, and so on. Skips do
 not affect the exit code.
 
 `--format` selects the output: `tap` (TAP version 14 text, colored on a
-terminal; on a terminal with a configured locale the header also carries a
-`pragma +locale-formatting` line), `ndjson` (newline-delimited JSON records:
-a leading plan record, one record per check, a bail-out record when
-applicable, and a mandatory trailing summary --- for machine consumption),
-or `auto` (the default: TAP when stdout is a terminal, ndjson when it is
-piped).
+terminal), `ndjson` (newline-delimited JSON, one record per test point plus
+a trailing summary, for machine consumption), or `auto` (the default: TAP
+when stdout is a terminal, ndjson when it is piped).
 
 The exit code is `0` when no check failed (skips are fine) and `1` when any
 check failed, including the bail-out on an unusable configuration --- so
