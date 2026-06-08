@@ -7,6 +7,7 @@ setup() {
 }
 
 teardown() {
+  stop_fake_agents
   teardown_test_home
 }
 
@@ -71,4 +72,56 @@ function health_valid_config_emits_full_plan { # @test
   assert_output --partial "ok 1 - config valid"
   assert_output --partial "not ok 5 - listen socket answers"
   assert_output --partial "not ok 6 - upstream fake answers"
+}
+
+function health_all_green_with_live_sockets { # @test
+  start_fake_agent "$BATS_TEST_TMPDIR/upstream.sock"
+  write_config <<-EOF
+	listen-path = "$BATS_TEST_TMPDIR/listen.sock"
+	agent-timeout = 1
+
+	[[agents]]
+	name = "fake"
+	socket-path = "$BATS_TEST_TMPDIR/upstream.sock"
+
+	[[agents]]
+	name = "off"
+	socket-path = "/tmp/never.sock"
+	enabled = false
+	EOF
+  # The mux under test, reading the config just written and serving its
+  # listen-path.
+  "$SSH_AGENT_MUX_BIN" >>"$BATS_TEST_TMPDIR/daemons.log" 2>&1 &
+  STARTED_AGENTS+=("$!")
+  wait_for_socket "$BATS_TEST_TMPDIR/listen.sock"
+
+  # All-green relies on the service checks skipping (no systemd in the
+  # lane): 5 static checks + 2 agents = plan 1..7, exit 0.
+  run_ssh_agent_mux health --format tap
+  assert_success
+  assert_output --partial "1..7"
+  assert_output --partial "ok 1 - config valid"
+  assert_output --partial "ok 5 - listen socket answers"
+  assert_output --partial "keys: 0"
+  assert_output --partial "ok 6 - upstream fake answers"
+  assert_output --partial "ok 7 - upstream off answers # SKIP disabled"
+}
+
+function health_dead_upstream_fails { # @test
+  write_config <<-EOF
+	listen-path = "$BATS_TEST_TMPDIR/listen.sock"
+	agent-timeout = 1
+
+	[[agents]]
+	name = "gone"
+	socket-path = "$BATS_TEST_TMPDIR/gone.sock"
+	EOF
+
+  # No daemon serves the listen path and the upstream socket is absent:
+  # both probe points truthfully fail.
+  run_ssh_agent_mux health --format tap
+  assert_failure
+  assert_output --partial "1..6"
+  assert_output --partial "not ok 5 - listen socket answers"
+  assert_output --partial "not ok 6 - upstream gone answers"
 }
