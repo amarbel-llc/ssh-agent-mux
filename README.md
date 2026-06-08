@@ -201,9 +201,12 @@ service manager skips as `# SKIP systemctl unavailable`, and so on. Skips do
 not affect the exit code.
 
 `--format` selects the output: `tap` (TAP version 14 text, colored on a
-terminal), `ndjson` (newline-delimited JSON records, one per check plus a
-trailing summary, for machine consumption), or `auto` (the default: TAP when
-stdout is a terminal, ndjson when it is piped).
+terminal; on a terminal with a configured locale the header also carries a
+`pragma +locale-formatting` line), `ndjson` (newline-delimited JSON records:
+a leading plan record, one record per check, a bail-out record when
+applicable, and a mandatory trailing summary --- for machine consumption),
+or `auto` (the default: TAP when stdout is a terminal, ndjson when it is
+piped).
 
 The exit code is `0` when no check failed (skips are fine) and `1` when any
 check failed, including the bail-out on an unusable configuration --- so
