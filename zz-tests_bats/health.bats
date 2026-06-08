@@ -3,10 +3,18 @@
 setup() {
   load "$(dirname "$BATS_TEST_FILE")/common.bash"
   setup_test_home
+  STARTED_AGENTS=()
   export output
 }
 
 teardown() {
+  # Surface daemon stderr in the bats failure output (fd 3) --- without
+  # this a wait_for_socket timeout reports only "socket never appeared".
+  # `if` (not `&&`): a missing log must not fail teardown in daemon-less
+  # tests.
+  if [[ -f "$BATS_TEST_TMPDIR/daemons.log" ]]; then
+    cat "$BATS_TEST_TMPDIR/daemons.log" >&3
+  fi
   stop_fake_agents
   teardown_test_home
 }
@@ -104,7 +112,10 @@ function health_all_green_with_live_sockets { # @test
   assert_output --partial "ok 5 - listen socket answers"
   assert_output --partial "keys: 0"
   assert_output --partial "ok 6 - upstream fake answers"
-  assert_output --partial "ok 7 - upstream off answers # SKIP disabled"
+  # Loose on the directive rendering (tap-dancer's formatting choice),
+  # tight on the semantics: point 7 is ok and carries the disabled skip.
+  assert_output --partial "ok 7 - upstream off answers"
+  assert_output --partial "# SKIP disabled"
 }
 
 function health_dead_upstream_fails { # @test
