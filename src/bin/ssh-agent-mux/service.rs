@@ -27,7 +27,7 @@ pub enum Command {
     },
     /// Check agent and service health, emitting TAP
     Health {
-        /// Output format (auto: TAP text on a tty; tap-ndjson otherwise once available)
+        /// Output format (auto: TAP text on a tty; tap-ndjson otherwise)
         #[arg(long = "format", value_enum, default_value_t = crate::health::HealthFormat::Auto)]
         format: crate::health::HealthFormat,
     },

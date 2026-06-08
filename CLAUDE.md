@@ -46,6 +46,14 @@ Wrapper flags worth knowing: `--no-sandbox` (bypass fence),
   expansion)
 - `src/bin/ssh-agent-mux/service.rs` --- Subcommands (service
   install/restart/uninstall, config install/validate/edit)
+- `src/bin/ssh-agent-mux/health.rs` --- `health` subcommand (check engine,
+  TAP/ndjson rendering via tap-dancer `Reporter`, exit code)
+- `src/bin/ssh-agent-mux/health/service_state.rs` --- Service-manager probing
+  (systemctl on Linux, launchctl on macOS)
+- `src/bin/ssh-agent-mux/health/socket_holder.rs` --- Listener-identity check
+  via `/proc` (Linux only)
+- `src/bin/ssh-agent-mux/health/probe.rs` --- SSH agent protocol probes with
+  key-count diagnostics
 - `src/lib.rs` --- `MuxAgent` core logic (SSH agent protocol multiplexing)
 
 ## Configuration

@@ -117,6 +117,98 @@ $ ssh-agent-mux service install
 
 Service will automatically start as soon as it is installed.
 
+### Checking health
+
+`ssh-agent-mux health` diagnoses a running installation end-to-end and prints
+the result as [TAP version 14](https://testanything.org/tap-version-14-specification.html).
+It is built for the "the service is up but `ssh` can't see my keys" class of
+problem: every check is a TAP test point, and failures carry diagnostics
+naming the culprit.
+
+```console
+$ ssh-agent-mux health
+TAP version 14
+1..7
+ok 1 - config valid
+  ---
+  path: "/home/you/.config/ssh-agent-mux/ssh-agent-mux.toml"
+  agents: 2
+  ...
+ok 2 - service installed
+  ---
+  unit: "/home/you/.config/systemd/user/ssh-agent-mux.service"
+  ...
+ok 3 - service active
+  ---
+  main-pid: 16891
+  ...
+ok 4 - listen socket held by service
+  ---
+  main-pid: 16891
+  ...
+ok 5 - listen socket answers
+  ---
+  keys: 3
+  ...
+ok 6 - upstream 1password answers
+  ---
+  keys: 2
+  ...
+ok 7 - upstream yubikey answers
+  ---
+  keys: 1
+  ...
+```
+
+The checks, in order:
+
+1. `config valid` --- the configuration parses and validates. On failure the
+   run emits `not ok 1 - config valid` with the parse error, then `Bail out!`
+   (nothing else is checkable without a config) and exits 1.
+
+1. `service installed` --- the systemd unit (Linux) or launchd plist (macOS)
+   is present.
+
+1. `service active` --- the service manager reports the service running.
+
+1. `listen socket held by service` --- the configured listen socket is bound
+   by the service's own process rather than a foreign one (Linux only, via
+   `/proc`; skipped on macOS). When some other process holds the socket ---
+   the classic cause of "service is green but `ssh` sees no keys" --- the
+   failure names it:
+
+   ```
+   not ok 4 - listen socket held by service
+     ---
+     holder-pid: 4242
+     holder-cgroup: "0::/user.slice/some-other-agent.service"
+     ...
+   ```
+
+1. `listen socket answers` --- the mux's own socket answers an SSH agent
+   protocol request.
+
+1. `upstream <name> answers` --- one check per configured agent, in
+   configuration order; agents with `enabled = false` are skipped.
+
+Key counts reported by the protocol checks are diagnostics only: an answering
+agent with zero keys still passes. Each protocol probe is bounded by the
+`agent-timeout` configuration setting (seconds, default 5).
+
+Checks that cannot run are reported as honest TAP skips, never failures: a
+not-installed service skips the dependent service checks, an unavailable
+service manager skips as `# SKIP systemctl unavailable`, and so on. Skips do
+not affect the exit code.
+
+`--format` selects the output: `tap` (TAP version 14 text, colored on a
+terminal), `ndjson` (newline-delimited JSON records, one per check plus a
+trailing summary, for machine consumption), or `auto` (the default: TAP when
+stdout is a terminal, ndjson when it is piped).
+
+The exit code is `0` when no check failed (skips are fine) and `1` when any
+check failed, including the bail-out on an unusable configuration --- so
+`ssh-agent-mux health` works directly as a scripted probe.
+
 ## Configuration
 
 `ssh-agent-mux` configuration is in [TOML](https://toml.io/en/v1.0.0) format. The default configuration file location is `~/.config/ssh-agent-mux/ssh-agent-mux.toml`. A simple configuration might look like:
